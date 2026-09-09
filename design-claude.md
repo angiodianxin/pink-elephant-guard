@@ -128,9 +128,11 @@ SKILL.md にすべての手順を書き、メインモデルが自力で全工�
 ### 7.2 中間生成物: manifest
 
 層の間の受け渡しは会話コンテキストではなく、構造化ファイル `pink-elephant-manifest.json` で行う。
+スキーマの機械可読な正本は `schema/manifest.schema.json`（JSON Schema draft 2020-12）に置く。
 
 ~~~json
 {
+  "schema_version": 1,
   "target_state": "現在状態の要約（Clean Briefの骨子）",
   "rejected": [
     {
@@ -141,13 +143,38 @@ SKILL.md にすべての手順を書き、メインモデルが自力で全工�
     }
   ],
   "visible_exceptions": [
-    { "term": "カフェインレス", "scope": "完成コピー本文に1回", "reason": "不使用訴求として指定" }
+    { "term": "カフェインレス", "max_occurrences": 1, "reason": "不使用訴求として指定" }
   ],
   "surface": ["headline", "body", "cta"]
 }
 ~~~
 
-- 作成はL3（工程1の出力）。L1は `literal_terms` を、L2は `rejected[].concept` と `visible_exceptions` を入力にとる。
+フィールド定義:
+
+| フィールド | 必須 | 型・制約 |
+|---|---|---|
+| `schema_version` | MUST | 整数。現行は `1`。スキーマの破壊的変更（§18）で増やす |
+| `target_state` | MUST | 空でない文字列（2000文字以内）。会話全文を転記しない |
+| `rejected` | MUST | 1件以上の配列 |
+| `rejected[].id` | MUST | manifest 内で一意。`^[a-z0-9][a-z0-9_-]{0,31}$` |
+| `rejected[].label` | MUST | 空でない文字列。人間向け表示名 |
+| `rejected[].literal_terms` | MUST | 空でない文字列を1つ以上、重複なし。**表記揺れの展開はL3の責務**（作成時に済ませる前提）。L1は正規化一致のみ行い、展開はしない |
+| `rejected[].concept` | MUST | 空でない文字列（500文字以内）。L2の意味検査の基準。却下理由の経緯は書かない |
+| `visible_exceptions` | MAY | 省略時は例外なし |
+| `visible_exceptions[].term` | MUST | 空でない文字列 |
+| `visible_exceptions[].max_occurrences` | MUST | 1以上の整数。初稿全体での正規化一致の許容出現回数。超過分のみL1がFAIL |
+| `visible_exceptions[].reason` | MAY | L2のAttention leak判定の参考情報 |
+| `surface` | MAY | 空でない文字列の配列、重複なし。L2/L3の参考情報でL1は使用しない |
+
+追加の整合性制約（L1が検証し、違反は exit 2）:
+
+- 未知のフィールドを持たない（additionalProperties 禁止。スキーマ拡張は `schema_version` を上げて行う）。
+- `visible_exceptions[].term` は、いずれの `literal_terms` とも正規化後に重複してはならない（同一語に「禁止」と「許可」が同時に付くのを防ぐ。例外扱いにしたい語は `literal_terms` から外し、`visible_exceptions` のみに置く）。
+
+L1 が exit 2（manifest不正・§13.3）で差し戻す条件は次のいずれか:
+JSONとしてパース不能、`schema/manifest.schema.json` 違反（必須欠落・型不一致・制約違反・未知フィールド・未知の `schema_version`）、`rejected[].id` の重複、上記の整合性制約違反。
+
+- 作成はL3（工程1の出力）。L1は `literal_terms` と `visible_exceptions` の回数判定を、L2は `rejected[].concept` と `visible_exceptions` を入力にとる。
 - **L2サブエージェントへは manifest と初稿だけを渡し、会話履歴・却下理由の経緯は渡さない（MUST）。** これがコンテキスト隔離の要であり、検査者自身の汚染を防ぐ。
 - manifest はセッションのスクラッチパッドへ置き、成果物リポジトリへコミットしない。
 
@@ -210,7 +237,7 @@ Clean Briefだけを制作上の正本として初稿を作り、スクラッチ
 CLI `pink-elephant-scan`（Go製バイナリ）を初稿ファイルとmanifestに対して実行する。
 
 - 検査内容: `literal_terms` の完全一致・正規化一致（大文字小文字、全角半角、ひらがな/カタカナ相互）。
-- `visible_exceptions` の語は、出現回数がscope指定内であればPASS。
+- `visible_exceptions` の語は、出現回数が max_occurrences 以内であればPASS。
 - 出力: JSON（`{"pass": bool, "hits": [{term, line, excerpt}]}`）。終了コード 0=PASS / 1=FAIL。
 - FAILなら工程2へ戻る。**L2は呼ばない。**
 
@@ -302,7 +329,7 @@ PASS判定はL1・L2の機械的/隔離検査の結果からのみ導き、L3の
 
 期待動作:
 
-- 「カフェインレス」を `visible_exceptions`（scope: 本文1回）として保持し、L1が回数超過を検査する。
+- 「カフェインレス」を `visible_exceptions`（max_occurrences: 1）として保持し、L1が回数超過を検査する。
 - 通常版や検討経緯は完成稿へ出さない。
 
 ### 12.3 L1で止まる例（Literal leak → 再生成）
@@ -374,8 +401,10 @@ pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 │  ├─ go.mod                         # module: github.com/<owner>/pink-elephant-guard/scan、Go 1.22+
 │  ├─ main.go                        # CLI引数処理、JSON入出力
 │  ├─ normalize.go                   # NFKC・かな相互・小文字化
-│  ├─ scan.go                        # 照合、visible_exceptions のscope判定
+│  ├─ scan.go                        # 照合、visible_exceptions の出現回数判定
 │  └─ scan_test.go                   # 既知の漏れサンプルによる回帰テスト
+├─ schema/
+│  └─ manifest.schema.json           # manifest スキーマの機械可読な正本（JSON Schema draft 2020-12、§7.2）
 ├─ bin/                              # ビルド成果物の置き場（.gitignore対象、コミットしない）
 ├─ .gitignore                        # bin/、pink-elephant-manifest.json 等
 ├─ LICENSE                           # OSSライセンス（MIT等）を必ず付ける
@@ -421,9 +450,9 @@ stdout: {"pass": bool, "hits": [{"term": "...", "line": n, "excerpt": "..."}]}
 - Go 1.22+。依存は `golang.org/x/text`（NFKC正規化）のみ（MUST）。標準ライブラリと合わせてこれ以外の外部依存を持たない。
 - `CGO_ENABLED=0` でビルドした単一静的バイナリとして配布する（MUST）。実行環境にランタイムを要求しない。
 - 正規化: `x/text/unicode/norm` によるNFKC、`strings.ToLower`、カタカナ→ひらがなの rune シフト（MUST）。形態素解析は行わない（意味検査はL2の責務）。
-- `visible_exceptions` の scope 内出現は hit に数えない。超過分のみ FAIL。
+- `visible_exceptions` の `max_occurrences` 以内の出現は hit に数えない。超過分のみ FAIL。
 - manifest スキーマ不正は検査せず exit 2 で即時終了し、L3へ差し戻す。
-- `scan_test.go` に既知の漏れサンプル集（表記揺れ・全角半角・かな違い・例外scope超過）を持ち、`go test ./...` で回帰確認する（MUST）。
+- `scan_test.go` に既知の漏れサンプル集（表記揺れ・全角半角・かな違い・例外の回数超過）を持ち、`go test ./...` で回帰確認する（MUST）。
 - クロスコンパイル: `GOOS`/`GOARCH` 指定で windows/amd64、darwin/arm64、linux/amd64 を生成できること（SHOULD）。
 
 組込みの選択肢（MAY）:
@@ -449,7 +478,7 @@ tools: Read
 - 入力は manifest と初稿ファイルのパスのみ。会話の経緯は知らされない前提で書く。
 - Semantic / Rationale / Attention / Visual の4検査を行い、判定と箇所のJSONだけを返す。
 - 修正文・改善案を書いてはならない（修正はL3の責務）。
-- `visible_exceptions` は指定scope内であれば漏れとしない。
+- `visible_exceptions` は `max_occurrences` 以内であれば漏れとしない。
 
 ### 13.5 配布とインストール
 
