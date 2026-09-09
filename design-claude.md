@@ -158,10 +158,10 @@ SKILL.md にすべての手順を書き、メインモデルが自力で全工�
 | `rejected` | MUST | 1件以上の配列 |
 | `rejected[].id` | MUST | manifest 内で一意。`^[a-z0-9][a-z0-9_-]{0,31}$` |
 | `rejected[].label` | MUST | 空でない文字列。人間向け表示名 |
-| `rejected[].literal_terms` | MUST | 空でない文字列を1つ以上、重複なし。**表記揺れの展開はL3の責務**（作成時に済ませる前提）。L1は正規化一致のみ行い、展開はしない |
+| `rejected[].literal_terms` | MUST | 空でない文字列を1つ以上、重複なし、改行を含まない（照合が行単位のため）。**表記揺れの展開はL3の責務**（作成時に済ませる前提）。L1は正規化一致のみ行い、展開はしない |
 | `rejected[].concept` | MUST | 空でない文字列（500文字以内）。L2の意味検査の基準。却下理由の経緯は書かない |
 | `visible_exceptions` | MAY | 省略時は例外なし |
-| `visible_exceptions[].term` | MUST | 空でない文字列 |
+| `visible_exceptions[].term` | MUST | 空でない文字列、改行を含まない（照合が行単位のため） |
 | `visible_exceptions[].max_occurrences` | MUST | 1以上の整数。初稿全体での正規化一致の許容出現回数。超過分のみL1がFAIL。**回数の免除はL1の責務であり、L2は回数では免除しない** |
 | `visible_exceptions[].allowed_surfaces` | MAY | この語の出現を許可する面。`surface` の値を参照する。L1は使用せず、L2がAttention leak検査で配置を検証する。省略時は面の制限なし |
 | `visible_exceptions[].reason` | MAY | L2のAttention leak判定の参考情報 |
@@ -342,7 +342,7 @@ PASS判定はL1・L2の機械的/隔離検査の結果からのみ導き、L3の
 
 期待動作:
 
-- L1が `literal_terms` の「桜あんぱん」に一致し、`{"pass": false, "hits": [{"term": "桜あんぱん", "line": 1}]}` を返す（exit 1）。
+- L1が `literal_terms` の「桜あんぱん」に一致し、`{"pass": false, "hits": [{"term": "桜あんぱん", "line": 1, "excerpt": "桜あんぱんの販売は終了しました。今週は焼きたてクロワッサン3種を…"}]}` を返す（exit 1）。
 - L2は呼ばれない（fail-fast）。L3はhitの語を消す修理をせず、工程2のClean Briefから再生成する。
 - 表記が「ｻｸﾗあんぱん」「SAKURA ANPAN」でも、NFKC・かな相互の正規化で同様に検出される。
 
@@ -417,7 +417,6 @@ pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 方針:
 
 - **バイナリはGitにコミットせず、GitHub Releases へ添付して配布する（MUST）。** Gitにバイナリを入れると履歴が肥大し、改竄検証もできない。正本は `scan/` のソースで、実行物はReleasesの添付から取得する。
-~~~
 
 外部パッケージ、APIキー、ネットワーク接続、常駐プロセスは不要。
 
@@ -443,7 +442,7 @@ description: Prevent rejected, removed, corrected, or forbidden concepts from re
 
 ~~~text
 usage: pink-elephant-scan --manifest <path> --draft <path>
-exit:  0 = PASS / 1 = FAIL / 2 = manifest不正
+exit:  0 = PASS / 1 = FAIL / 2 = 入力不正（manifest不正・引数不正・draft読取り不可。詳細は scan/DESIGN.md §2.2）
 stdout: {"pass": bool, "hits": [{"term": "...", "line": n, "excerpt": "..."}]}
 ~~~
 

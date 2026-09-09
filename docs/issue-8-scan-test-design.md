@@ -20,16 +20,16 @@ L1（決定論的CLI）の検出挙動を「既知の漏れサンプル集」と
 `scan/` は `package main` の単一パッケージであり（§13.1）、`scan_test.go` も同一パッケージに置く。
 これにより非公開関数を直接テストでき、バイナリのビルド・exec を必要としない。
 
-テスト容易性のため、#7 の実装は次の分離を満たすこと（本書から #7 への設計上の要求）:
+テスト容易性のため、#7 の実装は次の分離を満たすこと（`scan/DESIGN.md` §3）:
 
-| 関数（想定シグネチャ） | ファイル | 責務 |
+| 関数（シグネチャ） | ファイル | 責務 |
 |---|---|---|
-| `normalize(s string) string` | normalize.go | NFKC → `strings.ToLower` → カタカナ→ひらがな rune シフト（この順） |
-| `loadManifest(path string) (*Manifest, error)` | scan.go または main.go | JSON パース、スキーマ検証、整合性制約検証。不正は manifest 不正を示す型付きエラー |
-| `scanDraft(m *Manifest, draft string) Result` | scan.go | 照合と `visible_exceptions` の回数判定。`Result{Pass bool, Hits []Hit}` |
+| `Normalize(s string) string` | normalize.go | NFKC → `strings.ToLower` → カタカナ→ひらがな rune シフト（この順） |
+| `ParseManifest(b []byte) (*Manifest, error)` | scan.go | JSON パース、スキーマ検証、整合性制約検証。不正は manifest 不正を示すエラー（ファイル読込は `run` が担う） |
+| `Scan(m *Manifest, draft string) Result` | scan.go | 照合と `visible_exceptions` の回数判定。`Result{Pass bool, Hits []Hit}` |
 | `run(args []string, stdout, stderr io.Writer) int` | main.go | 引数処理と入出力。戻り値がそのまま終了コード（0/1/2）。`main()` は `os.Exit(run(...))` のみ |
 
-実際の関数名・シグネチャが #7 の実装で多少異なるのは許容する。
+実装過程で名前が多少変わるのは許容する。
 その場合はテスト側を実装に合わせて調整するが、**次の3点は変更不可の契約**とする:
 
 1. 終了コードのロジックが `main()` から分離され、テストからプロセスを起動せずに検証できること。
@@ -126,13 +126,15 @@ manifest 不正系のテストでは、この標準 manifest を `map[string]any
 | S-08 | 2行目に `桜あんぱん`、4行目に `無料配布` | FAIL, 2 hits (line 2, line 4) | 各 term | 複数 rejected・複数行、hits の行番号昇順 |
 | S-09 | `桜餅とあんぱんを別々に販売` | PASS, 0 hits | — | 部分文字列の合成では一致しない（`桜` と `あんぱん` が離れている）陰性対照 |
 | S-10 | `さくらあんぱんセール`（専用 manifest: literal_terms を `["サクラアンパン", "さくらあんぱん"]` の順で列挙） | FAIL, 1 hit | `サクラアンパン` | 正規化後に同形となる複数 term の報告規則（列挙順で最初）の固定 |
+| S-11 | `さくらあんぱんセール`（専用 manifest: r1 の literal_terms に `サクラアンパン`、r2 の literal_terms に `さくらあんぱん`） | FAIL, 1 hit | `サクラアンパン` | 重複排除が `rejected` 単位に閉じず manifest 全体で働くこと（先の rejected の原表記で 1 hit） |
 
 補足: 標準 manifest では `桜あんぱん` は漢字を含み正規化で変化しないため、
 S-04 の半角カナ入力に一致するのは `さくらあんぱん` のみである。
 複数の literal_terms が正規化後に同一形となる場合にどの term として報告するかは実装依存にしない —
-**hit の `term` は正規化後に一致した表記のうち literal_terms の列挙順で最初のもの**と契約し、
+**hit の `term` は正規化後に一致した表記のうち literal_terms の列挙順で最初のもの**と契約し（`scan/DESIGN.md` §6.3 と同一の契約）、
 S-10（専用 manifest。`サクラアンパン` と `さくらあんぱん` はともに `さくらあんぱん` へ正規化される）で
-この規則を固定する。
+同一 `literal_terms` 配列内の規則を、S-11 で `rejected` をまたぐ場合（重複排除は manifest 全体で
+1 つの照合対象として働き、処理順で先の `rejected` の原表記を報告する）を固定する。
 
 ### 5.3 `TestScanVisibleExceptions` — 例外の回数判定（チェックリスト 4）
 
@@ -147,6 +149,7 @@ S-10（専用 manifest。`サクラアンパン` と `さくらあんぱん` は
 | V-04 | `遅めの朝` が2回 | PASS, 0 hits | max_occurrences=2 の境界値（ちょうど上限） |
 | V-05 | `遅めの朝` が3回 | FAIL, 1 hit（3回目の行） | 境界値+1 |
 | V-06 | 例外語ゼロ、rejected もゼロ出現 | PASS, 0 hits | 例外は「出現義務」ではない（0回でも PASS） |
+| V-07 | 専用 manifest: literal_terms に `�`（U+FFFD）、例外 `カフェインレス`×1、初稿に `カフェインレス` が1回（`�` は無い） | PASS, 0 hits | 例外マスクが区間管理であり文字置換でないこと（U+FFFD を偽 hit させない。`scan/DESIGN.md` §6.2） |
 
 ### 5.4 `TestScanNegativeControl` — 偽陽性のない陰性対照（チェックリスト 5）
 
@@ -164,25 +167,33 @@ C-01 では `run()` の stdout JSON もあわせて検証し、`{"pass":true,"hi
 hit の詳細フィールドを次のとおり契約として固定する:
 
 - `line`: 初稿の **1始まり**の行番号。行の区切りは `\n`（`\r\n` は `\r` を行末から除去して扱う）。
-- `excerpt`: **正規化前の原文**の該当行全体から改行を除いたもの。v1 では切り詰めを行わない。
-- 照合は行単位で行う。literal_terms は改行を含まない前提であり、
-  行をまたぐ一致は検出しない（既知の限界として §15 に記載する対象。テストでは
+- `excerpt`: **正規化前の原文**の該当行から前後の空白を除去したもの。120 rune を超える場合は
+  先頭 120 rune + `…` に切り詰める（`scan/DESIGN.md` §2.3）。
+- 照合は行単位で行う。改行を含む literal_terms / term は manifest 不正（exit 2、M-15）。
+  初稿側で行をまたぐ一致は検出しない（既知の限界として §15 に記載する対象。テストでは
   「行またぎは検出されない」ことを仕様の現状として固定する D-04 を置く）。
-- hits の順序: 行番号昇順、同一行内は出現位置（正規化後テキスト上の byte offset）昇順。
+- hits の順序: 行番号昇順、同一行内は出現位置（正規化後テキスト上の rune オフセット）昇順。
 - 同一行内の同一 term の複数出現は、出現ごとに1 hit と数える（回数判定と整合させるため）。
 
 | ID | 初稿 | 期待 |
 |---|---|---|
-| D-01 | 3行の初稿、2行目に `桜あんぱん` | hits[0] = `{term:"桜あんぱん", line:2, excerpt:"（2行目の原文全体）"}` |
-| D-02 | `ｻｸﾗあんぱん` を含む行 | excerpt は正規化前の `ｻｸﾗあんぱん` を含む原文行そのまま |
+| D-01 | 3行の初稿、2行目に `桜あんぱん` | hits[0] = `{term:"桜あんぱん", line:2, excerpt:"（2行目の原文、前後空白除去済み）"}` |
+| D-02 | `ｻｸﾗあんぱん` を含む行 | excerpt は正規化前の `ｻｸﾗあんぱん` を含む原文（正規化しない） |
 | D-03 | 1行に `桜あんぱん` が2回 | 同一 line の hit が2件、offset 順 |
 | D-04 | `桜あん\nぱん`（行またぎ） | PASS（検出しない — 現仕様の限界の固定） |
 | D-05 | CRLF 改行の初稿、2行目に一致 | line=2、excerpt に `\r` を含まない |
+| D-06a | 一致を含む、trim 後ちょうど 120 rune の行 | excerpt は 120 rune 全体、`…` を付けない（境界の下側） |
+| D-06b | 一致を含む、trim 後 121 rune の行 | excerpt は先頭 120 rune + `…`（境界の上側） |
+| D-07 | 行頭に空白 + 一致 | excerpt は前後空白を除去した原文行 |
 
 ### 5.6 `TestManifestValidation` — manifest 不正の網羅（チェックリスト 6）
 
-§7.2 の exit 2 条件を1件ずつ壊して検証する。`loadManifest()` が
+§7.2 の exit 2 条件を1件ずつ壊して検証する。`ParseManifest()` が
 manifest 不正を示すエラーを返すこと、および `run()` 経由で exit 2 になることを確認する。
+
+manifest 検証は Go コードへの手書き実装であり（`scan/DESIGN.md` §3.1・§5）、
+それが正本スキーマ `schema/manifest.schema.json` と同値であることは本テーブルが事実上担保する。
+スキーマ変更時は `scan.go` の検証と本テーブルを同時に更新する。
 
 | ID | 壊し方 | 対応する §7.2 条件 |
 |---|---|---|
@@ -200,8 +211,13 @@ manifest 不正を示すエラーを返すこと、および `run()` 経由で e
 | M-12 | `allowed_surfaces: ["footer"]`（`surface` に無い値） | allowed_surfaces ⊆ surface 違反 |
 | M-13 | `surface` を削除したまま `allowed_surfaces` を残す | surface 宣言の前提違反 |
 | M-14 | `literal_terms` に同一文字列の重複 | uniqueItems 違反 |
+| M-15 | `literal_terms` の要素に改行（`"桜\nあんぱん"`）、または `visible_exceptions[].term` に改行 | 制約違反（改行を含む term の禁止） |
+| M-16 | 単一 JSON 値の後にゴミが続く入力（`{...}{...}`、`{...} x`） | パース不能（単一の JSON 値でない。`scan/DESIGN.md` §5） |
+| M-17 | 任意フィールドの明示的 `null`（`"visible_exceptions": null`、`"surface": null`） | 型不一致（欠落は許容、`null` は不正。`scan/DESIGN.md` §5） |
 
 陰性対照として M-00: 標準 manifest（§4）がそのまま検証を通ること。
+M-01・M-16 のような JSON 表現レベルの不正は `brokenManifest`（map 経由）では表現できないため、
+raw string リテラルのフィクスチャで与える。
 
 ### 5.7 `TestRunExitCodes` — 終了コードと stdout JSON
 
@@ -211,9 +227,15 @@ manifest 不正を示すエラーを返すこと、および `run()` 経由で e
 |---|---|---|---|
 | E-01 | 正常稿（C-01 相当） | 0 | `{"pass":true,"hits":[]}` |
 | E-02 | §12.3 の初稿（S-01 相当） | 1 | `pass:false`、hits に term/line/excerpt |
-| E-03 | manifest 不正（M-01 相当） | 2 | 検査結果 JSON を出力しない（エラーは stderr） |
-| E-04 | `--draft` のファイルが存在しない | #7 で終了コードを確定後に固定（§7 未決事項 1）。確定までスイートへ含めない | 検査結果 JSON を出力しない（先行して契約） |
-| E-05 | 引数不足（`--manifest` のみ） | E-04 と同じ決定に従う（§7 未決事項 1）。usage は stderr へ | 検査結果 JSON を出力しない |
+| E-03 | manifest 不正（M-01 相当） | 2 | 検査結果 JSON を出力しない（stderr は `manifest` カテゴリ） |
+| E-04 | `--draft` のファイルが存在しない | 2 | 検査結果 JSON を出力しない（stderr は `draft` カテゴリ） |
+| E-05 | 引数不足（`--manifest` のみ） | 2 | 検査結果 JSON を出力しない（stderr は `usage` カテゴリ） |
+| E-06 | `--manifest` のファイルが存在しない | 2 | 検査結果 JSON を出力しない（stderr は `manifest` カテゴリ） |
+
+exit 2 の範囲（引数不正・ファイル読取り不可を含む）と stderr の書式
+`pink-elephant-scan: <category> error: <詳細>` は `scan/DESIGN.md` §2.2・§2.4 に従う。
+stderr の文面は後方互換の対象外のため、テストはカテゴリ接頭辞（`usage` / `manifest` / `draft`）
+までを検証し、詳細文言には依存させない。
 
 ## 6. 回帰運用への組み込み（受け入れ条件 3）
 
@@ -224,19 +246,3 @@ manifest 不正を示すエラーを返すこと、および `run()` 経由で e
   同一 PR の diff に現れるため、レビューで挙動変更が可視化される。
 - 新たな取りこぼし（実運用で見つかった漏れサンプル）は、修正 PR で必ず
   該当テーブルへ再現ケースを1行追加してから修正する（fail first）。
-
-## 7. 未決事項（#7 実装時に確定し、本書へ反映する）
-
-1. **入出力エラーの終了コード**: draft/manifest ファイルが開けない・引数不足の場合の exit 値。
-   §13.3 は 0/1/2 のみ定義しており、0（PASS）と 1（FAIL）は検査結果の意味を持つため流用できない。
-   次のいずれかを #7 で確定し、§13.3 へ反映する:
-   - 案 (a): manifest が開けない場合は「manifest 不正」に含めて exit 2 とし、
-     draft が開けない・引数不足は新コード（例: exit 3 = usage/IO エラー）を §13.3 に追記する。
-   - 案 (b): 入出力・usage エラーもすべて exit 2 に寄せる（2 の意味を「検査を実施できなかった」へ広げる）。
-   確定後に E-04 / E-05 の期待値をテストとして固定する。それまで両ケースは
-   「検査結果 JSON を stdout に出力しない」ことのみ検証する。
-2. **スキーマ検証の実装方式**: `schema/manifest.schema.json` を実行時に読むか、
-   Go コードへ検証ロジックを写すか。§13.3 の「外部依存は `golang.org/x/text` のみ」の制約から
-   JSON Schema バリデータは導入できないため、Go 実装が正本スキーマと同値であることを
-   本スイート（5.6）が事実上担保する。スキーマ変更時は 5.6 のテーブル更新を必須とする。
-3. **関数シグネチャ**: §2 の想定シグネチャは #7 の実装で確定した名前に本書を追従させる。
