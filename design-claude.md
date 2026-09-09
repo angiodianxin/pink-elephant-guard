@@ -342,7 +342,7 @@ PASS判定はL1・L2の機械的/隔離検査の結果からのみ導き、L3の
 
 期待動作:
 
-- L1が `literal_terms` の「桜あんぱん」に一致し、`{"pass": false, "hits": [{"term": "桜あんぱん", "line": 1}]}` を返す（exit 1）。
+- L1が `literal_terms` の「桜あんぱん」に一致し、`{"pass": false, "hits": [{"term": "桜あんぱん", "line": 1, "excerpt": "桜あんぱんの販売は終了しました。今週は焼きたてクロワッサン3種を…"}]}` を返す（exit 1）。
 - L2は呼ばれない（fail-fast）。L3はhitの語を消す修理をせず、工程2のClean Briefから再生成する。
 - 表記が「ｻｸﾗあんぱん」「SAKURA ANPAN」でも、NFKC・かな相互の正規化で同様に検出される。
 
@@ -417,7 +417,6 @@ pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 方針:
 
 - **バイナリはGitにコミットせず、GitHub Releases へ添付して配布する（MUST）。** Gitにバイナリを入れると履歴が肥大し、改竄検証もできない。正本は `scan/` のソースで、実行物はReleasesの添付から取得する。
-~~~
 
 外部パッケージ、APIキー、ネットワーク接続、常駐プロセスは不要。
 
@@ -443,7 +442,7 @@ description: Prevent rejected, removed, corrected, or forbidden concepts from re
 
 ~~~text
 usage: pink-elephant-scan --manifest <path> --draft <path>
-exit:  0 = PASS / 1 = FAIL / 2 = manifest不正
+exit:  0 = PASS / 1 = FAIL / 2 = 入力不正（manifest不正・引数不正・draft読取り不可。詳細は scan/DESIGN.md §2.2）
 stdout: {"pass": bool, "hits": [{"term": "...", "line": n, "excerpt": "..."}]}
 ~~~
 
