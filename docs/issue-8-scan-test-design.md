@@ -2,7 +2,7 @@
 
 - 対象 Issue: [#8 L1: 回帰テストスイート（scan_test.go）](https://github.com/angiodianxin/pink-elephant-guard/issues/8)
 - 依存 Issue: [#7 L1: pink-elephant-scan CLI の実装（Go）](https://github.com/angiodianxin/pink-elephant-guard/issues/7)
-- 参照: design-claude.md §7.2（manifest / exit 2 条件）、§12.2・§12.3（使用例）、§13.3（CLI 仕様・scan_test.go MUST）、§18（バージョニング）、`schema/manifest.schema.json`（スキーマ正本）
+- 参照: design-claude.md §7.2（manifest / exit 3 条件）、§12.2・§12.3（使用例）、§13.3（CLI 仕様・scan_test.go MUST）、§18（バージョニング）、`schema/manifest.schema.json`（スキーマ正本）
 
 ## 1. 目的と位置づけ
 
@@ -27,7 +27,7 @@ L1（決定論的CLI）の検出挙動を「既知の漏れサンプル集」と
 | `Normalize(s string) string` | normalize.go | NFKC → `strings.ToLower` → カタカナ→ひらがな rune シフト（この順） |
 | `ParseManifest(b []byte) (*Manifest, error)` | scan.go | JSON パース、スキーマ検証、整合性制約検証。不正は manifest 不正を示すエラー（ファイル読込は `run` が担う） |
 | `Scan(m *Manifest, draft string) Result` | scan.go | 照合と `visible_exceptions` の回数判定。`Result{Pass bool, Hits []Hit}` |
-| `run(args []string, stdout, stderr io.Writer) int` | main.go | 引数処理と入出力。戻り値がそのまま終了コード（0/1/2）。`main()` は `os.Exit(run(...))` のみ |
+| `run(args []string, stdout, stderr io.Writer) int` | main.go | 引数処理と入出力。戻り値がそのまま終了コード（0〜4、`scan/DESIGN.md` §2.2）。`main()` は `os.Exit(run(...))` のみ |
 
 実装過程で名前が多少変わるのは許容する。
 その場合はテスト側を実装に合わせて調整するが、**次の3点は変更不可の契約**とする:
@@ -169,7 +169,7 @@ hit の詳細フィールドを次のとおり契約として固定する:
 - `line`: 初稿の **1始まり**の行番号。行の区切りは `\n`（`\r\n` は `\r` を行末から除去して扱う）。
 - `excerpt`: **正規化前の原文**の該当行から前後の空白を除去したもの。120 rune を超える場合は
   先頭 120 rune + `…` に切り詰める（`scan/DESIGN.md` §2.3）。
-- 照合は行単位で行う。改行を含む literal_terms / term は manifest 不正（exit 2、M-15）。
+- 照合は行単位で行う。改行を含む literal_terms / term は manifest 不正（exit 3、M-15）。
   初稿側で行をまたぐ一致は検出しない（既知の限界として §15 に記載する対象。テストでは
   「行またぎは検出されない」ことを仕様の現状として固定する D-04 を置く）。
 - hits の順序: 行番号昇順、同一行内は出現位置（正規化後テキスト上の rune オフセット）昇順。
@@ -188,8 +188,8 @@ hit の詳細フィールドを次のとおり契約として固定する:
 
 ### 5.6 `TestManifestValidation` — manifest 不正の網羅（チェックリスト 6）
 
-§7.2 の exit 2 条件を1件ずつ壊して検証する。`ParseManifest()` が
-manifest 不正を示すエラーを返すこと、および `run()` 経由で exit 2 になることを確認する。
+§7.2 の exit 3 条件を1件ずつ壊して検証する。`ParseManifest()` が
+manifest 不正を示すエラーを返すこと、および `run()` 経由で exit 3 になることを確認する。
 
 manifest 検証は Go コードへの手書き実装であり（`scan/DESIGN.md` §3.1・§5）、
 それが正本スキーマ `schema/manifest.schema.json` と同値であることは本テーブルが事実上担保する。
@@ -227,15 +227,16 @@ raw string リテラルのフィクスチャで与える。
 |---|---|---|---|
 | E-01 | 正常稿（C-01 相当） | 0 | `{"pass":true,"hits":[]}` |
 | E-02 | §12.3 の初稿（S-01 相当） | 1 | `pass:false`、hits に term/line/excerpt |
-| E-03 | manifest 不正（M-01 相当） | 2 | 検査結果 JSON を出力しない（stderr は `manifest` カテゴリ） |
-| E-04 | `--draft` のファイルが存在しない | 2 | 検査結果 JSON を出力しない（stderr は `draft` カテゴリ） |
+| E-03 | manifest 不正（M-01 相当） | 3 | 検査結果 JSON を出力しない（stderr は `manifest` カテゴリ） |
+| E-04 | `--draft` のファイルが存在しない | 4 | 検査結果 JSON を出力しない（stderr は `draft` カテゴリ） |
 | E-05 | 引数不足（`--manifest` のみ） | 2 | 検査結果 JSON を出力しない（stderr は `usage` カテゴリ） |
-| E-06 | `--manifest` のファイルが存在しない | 2 | 検査結果 JSON を出力しない（stderr は `manifest` カテゴリ） |
+| E-06 | `--manifest` のファイルが存在しない | 3 | 検査結果 JSON を出力しない（stderr は `manifest` カテゴリ） |
 
-exit 2 の範囲（引数不正・ファイル読取り不可を含む）と stderr の書式
-`pink-elephant-scan: <category> error: <詳細>` は `scan/DESIGN.md` §2.2・§2.4 に従う。
-stderr の文面は後方互換の対象外のため、テストはカテゴリ接頭辞（`usage` / `manifest` / `draft`）
-までを検証し、詳細文言には依存させない。
+exit code の割当て（0 = PASS / 1 = FAIL / 2 = 引数不正 / 3 = manifest 不正 / 4 = draft 読取り不可）と
+stderr の書式 `pink-elephant-scan: <category> error: <詳細>` は `scan/DESIGN.md` §2.2・§2.4 に従う。
+失敗系の exit code は stderr カテゴリ（`usage` / `manifest` / `draft`）と 1:1 に対応するため、
+本テーブルは exit code とカテゴリ接頭辞の両方を検証して対応関係を固定する。
+stderr の文面は後方互換の対象外のため、カテゴリ接頭辞より先の詳細文言には依存させない。
 
 ## 6. 回帰運用への組み込み（受け入れ条件 3）
 

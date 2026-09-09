@@ -8,7 +8,7 @@
   "required": ["schema_version", "target_state", "rejected"],
   "properties": {
     "schema_version": {
-      "description": "manifest スキーマの版。破壊的変更で増やす。L1 は未知の版を exit 2 で差し戻す。",
+      "description": "manifest スキーマの版。破壊的変更で増やす。L1 は未知の版を exit 3 で差し戻す。",
       "const": 1
     },
     "target_state": {
@@ -54,7 +54,7 @@
       }
     },
     "visible_exceptions": {
-      "description": "完成面に残してよい語。max_occurrences は正規化一致での出現回数上限で、超過分のみ L1 が FAIL とする。literal_terms と正規化後に重複する term は不正(exit 2)。省略時は例外なし。",
+      "description": "完成面に残してよい語。max_occurrences は正規化一致での出現回数上限で、超過分のみ L1 が FAIL とする。literal_terms と正規化後に重複する term は不正(exit 3)。省略時は例外なし。",
       "type": "array",
       "default": [],
       "items": {
@@ -75,7 +75,7 @@
             "minimum": 1
           },
           "allowed_surfaces": {
-            "description": "この語の出現を許可する面。surface の値を参照する(surface に含まれない値は不正で exit 2)。L1 は使用せず、L2 が Attention leak 検査で配置を検証する。省略時は面の制限なし。",
+            "description": "この語の出現を許可する面。surface の値を参照する(surface に含まれない値は不正で exit 3)。L1 は使用せず、L2 が Attention leak 検査で配置を検証する。省略時は面の制限なし。",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
