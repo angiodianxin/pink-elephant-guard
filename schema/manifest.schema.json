@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/angiodianxin/pink-elephant-guard/schema/manifest.schema.json",
+  "title": "pink-elephant-manifest",
+  "description": "L1/L2/L3 間の受け渡しに使う中間生成物 pink-elephant-manifest.json のスキーマ。本ファイルが機械可読な正本であり、design-claude.md §7.2 は本ファイルの人間向け解説(差分が生じた場合は本ファイルを優先)。会話全文・顧客情報・秘密・フルパスを保存してはならない(design-claude.md §17)。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "target_state", "rejected"],
+  "properties": {
+    "schema_version": {
+      "description": "manifest スキーマの版。破壊的変更で増やす。L1 は未知の版を exit 2 で差し戻す。",
+      "const": 1
+    },
+    "target_state": {
+      "description": "現在状態の要約(Clean Brief の骨子)。会話全文の転記は禁止。",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "rejected": {
+      "description": "却下・削除・訂正された要素。L1 は literal_terms を、L2 は concept を入力にとる。",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "literal_terms", "concept"],
+        "properties": {
+          "id": {
+            "description": "manifest 内で一意な識別子。",
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+          },
+          "label": {
+            "description": "人間向けの表示名。",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "literal_terms": {
+            "description": "L1 が照合する語のリスト。L3 が表記揺れ(ひらがな/カタカナ/ローマ字/略称)を展開済みであることを前提とする。L1 側の展開は正規化(NFKC・小文字化・かな相互)のみ。",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+          },
+          "concept": {
+            "description": "L2 の意味検査(同義語・上位語・言い換え)の基準となる概念説明。却下理由の経緯は書かない。",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "visible_exceptions": {
+      "description": "完成面に残してよい語。max_occurrences は正規化一致での出現回数上限で、超過分のみ L1 が FAIL とする。literal_terms と正規化後に重複する term は不正(exit 2)。省略時は例外なし。",
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["term", "max_occurrences"],
+        "properties": {
+          "term": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "max_occurrences": {
+            "description": "初稿全体での正規化一致の許容出現回数。回数の免除は L1 の責務で、L2 は回数では免除しない。",
+            "type": "integer",
+            "minimum": 1
+          },
+          "allowed_surfaces": {
+            "description": "この語の出現を許可する面。surface の値を参照する(surface に含まれない値は不正で exit 2)。L1 は使用せず、L2 が Attention leak 検査で配置を検証する。省略時は面の制限なし。",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "maxLength": 50 }
+          },
+          "reason": {
+            "description": "L2 の Attention leak 判定の参考情報(例: 不使用訴求として指定)。",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        }
+      }
+    },
+    "surface": {
+      "description": "受け手が見る面の列挙(例: headline, body, cta)。L2/L3 の参考情報で、L1 は使用しない。",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 50 }
+    }
+  }
+}
