@@ -42,7 +42,7 @@ usage: pink-elephant-scan --manifest <path> --draft <path>
 | `--draft <path>` | MUST | 検査対象の初稿ファイル（UTF-8 テキスト）のパス |
 
 - 上記以外のフラグ・位置引数は受け付けない。未知フラグ・必須欠落は usage を stderr へ出して exit 2。
-- 実装は標準ライブラリ `flag`（`flag.ExitOnError`）を用いる。`flag` のエラー時終了コードは 2 であり、本 CLI の「入力不正 = 2」と一致する。
+- 実装は標準ライブラリ `flag` を **`flag.ContinueOnError`** で用いる。`flag.ExitOnError` は解析エラー時に `os.Exit(2)` を直接呼び独自書式のエラー文を出すため、§2.4 の stderr 書式契約を満たせない。解析エラーは呼び出し元が §2.4 の書式（category = `usage`）へ整形し、exit 2 で終了する。`FlagSet.SetOutput(io.Discard)` で `flag` 自身の出力は抑止する。
 
 ### 2.2 終了コード
 
@@ -135,7 +135,7 @@ func Normalize(s string) string
 
 設計上の含意:
 
-- `カフェインレス` と `かふぇいんれす`、`ｻｸﾗあんぱん` と `桜あんぱん` の「サクラ」部分、`SAKURA ANPAN` と `sakura anpan` が同一の正規化結果になる。
+- `カフェインレス` と `かふぇいんれす`、`ｻｸﾗあんぱん` と `さくらあんぱん`、`SAKURA ANPAN` と `sakura anpan` が、それぞれ同一の正規化結果になる。
 - **漢字⇔かな（`桜`⇔`さくら`）は正規化で吸収しない。** これは表記揺れ展開であり、L3 が `literal_terms` に列挙する責務（§7.2）。§12.3 の受け入れ例が成立するのは、manifest 側に `"桜あんぱん", "さくらあんぱん", "sakura anpan"` が展開済みだからである。
 - 長音・中点・空白の除去や揺らぎ吸収（`サーバ`/`サーバー` 等）は行わない。必要なら L3 が展開する。
 - 形態素解析・分かち書きは行わない（MUST NOT）。部分文字列一致のため、語境界は考慮しない（`りんご` は `りんごあめ` にも hit する。過剰検出は再生成コストで許容し、取りこぼしを許容しない方針）。
@@ -146,7 +146,7 @@ func Normalize(s string) string
 
 `ParseManifest([]byte) (*Manifest, error)` が次を順に検証し、最初の違反で error を返す（main が exit 2 に写す）。
 
-1. **JSON パース**: `json.Decoder` + `DisallowUnknownFields()` でデコードする。パース不能・未知フィールドは不正（additionalProperties 禁止に対応）。
+1. **JSON パース**: `json.Decoder` + `DisallowUnknownFields()` でデコードする。パース不能・未知フィールドは不正（additionalProperties 禁止に対応）。デコード成功後にもう一度 `Decode` を呼び `io.EOF` を確認することで、単一の JSON 値の後に別の値やゴミが続く入力（例: `{...}{...}`）を不正として弾く。
 2. **スキーマ制約**（`schema/manifest.schema.json` と同値になるよう手書き検証）:
    - `schema_version`: 必須、`1` 以外は不正（未知の版の差し戻し）
    - `target_state`: 必須、1〜2000 文字（rune 数）
@@ -169,6 +169,7 @@ func Normalize(s string) string
 
 - 文字数制約は rune 数で数える（スキーマの minLength/maxLength はコードポイント単位）。
 - JSON の数値は `json.Number` で受け、`max_occurrences` が整数であること（`1.5` は不正）を確認する。
+- **明示的な `null` は欠落と区別して不正とする。** JSON Schema では任意フィールドも、存在する場合は宣言された型でなければならず `null` は不正。Go の slice/pointer へ直接デコードすると `null` と欠落が同じ nil になるため、任意フィールド（`visible_exceptions`、`surface`、`allowed_surfaces`、`reason` 等）は `json.RawMessage` などで存在有無を追跡し、存在して値が `null` の場合は不正とする（必須フィールドの `null` は型不一致として同様に不正）。
 - `schema_version` フィールド自体の欠落と、値が `1` 以外の場合はどちらも不正だが、エラーメッセージは区別する（欠落 / unsupported version）。
 
 ## 6. 照合仕様（scan.go）
@@ -189,7 +190,8 @@ func Normalize(s string) string
 2. 各出現について:
    - 通算出現回数が `max_occurrences` 以内 → hit にしない（免除）。
    - 超過分（`max_occurrences + 1` 回目以降） → `{"term": <原表記>, "line": n, "excerpt": <原文行>}` を hit に追加する。
-3. 免除・超過を問わず、**出現領域の rune を U+FFFD で置換してマスクする**。マスク済み領域は以降の照合（他の例外語・禁止語）の対象にならない。
+3. 免除・超過を問わず、**出現領域（行番号 + 正規化後行内の rune 区間）をマスク区間リストへ記録する**。テキスト自体は書き換えない。U+FFFD 等の番兵文字への置換は行わない — 番兵文字は draft・manifest の双方に合法的に出現し得るため、「以降の照合対象にならない」保証にならない（例: `literal_terms` に番兵文字そのものが含まれる場合に偽 hit する）。
+   - 以降の照合（他の例外語・禁止語）では、出現がマスク区間と 1 rune でも重なる場合、その出現を無視する。
    - 例外語同士が重複し得る場合の挙動は「manifest 記載順に早い者勝ち」で決定論的に定まる。
 
 回数は初稿全体での通算であり、行単位・面（surface）単位ではない。`allowed_surfaces` による配置検査は L2 の責務であり L1 は使わない。
@@ -197,7 +199,7 @@ func Normalize(s string) string
 ### 6.3 手順2: literal_terms の照合
 
 1. 全 `rejected[].literal_terms` を manifest 記載順（`rejected` の順 → 各 `literal_terms` の順）に処理する。
-2. 各語について、マスク適用済みの正規化済み各行を走査し、非重複の出現ごとに `{"term": <原表記>, "line": n, "excerpt": <原文行>}` を hit に追加する。
+2. 各語について、正規化済み各行を走査し、マスク区間と重ならない非重複の出現ごとに `{"term": <原表記>, "line": n, "excerpt": <原文行>}` を hit に追加する。
    - 語が異なれば同一領域に重なって hit してよい（`さくら` と `さくらあんぱん` が両方登録されていれば両方 hit する）。マスクは行わない。
 3. 1 出現でも hit があれば FAIL。
 
@@ -256,6 +258,9 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o .
 | 15 | manifest: allowed_surfaces ⊄ surface | surface 未宣言 + allowed_surfaces あり | exit 2 |
 | 16 | draft 不在 | 存在しないパス | exit 2、stderr に draft error |
 | 17 | Normalize 単体 | `ｻｸﾗ`→`さくら`、`ＳＡＫＵＲＡ`→`sakura`、`ヴ`→`ゔ`、`ー`→`ー` | 表どおり |
+| 18 | manifest: 末尾ゴミ | `{...}{...}`、`{...} x` | exit 2（単一 JSON 値でない） |
+| 19 | manifest: 明示的 null | `"visible_exceptions": null`、`"surface": null` | exit 2（欠落は許容、null は不正） |
+| 20 | 番兵文字を含む入力 | terms=`�`（U+FFFD）、draft に例外語出現あり | 例外マスクが U+FFFD を偽 hit させない（区間管理の回帰） |
 
 テストはモデルを介さず `go test ./scan/...` のみで再現でき、CI（および §13.3 の hook/linter 組込み）でそのまま使える。
 
@@ -265,7 +270,7 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o .
 |---|---|---|
 | exit 2 の範囲 | manifest 不正に加え引数不正・draft 読取り不可も 2 | 0/1 は「検査の判定」専用に保つ。exit 3 の新設は Issue の契約（0/1/2）を壊すため棄却 |
 | スキーマ検証の実装 | 手書き検証 + `DisallowUnknownFields` | JSON Schema ライブラリは依存追加禁止（MUST）に抵触。二重管理はテストで担保 |
-| 例外語と禁止語の部分文字列衝突 | 例外出現領域をマスクしてから禁止語照合 | 免除したはずの語の内部で禁止語が hit する偽 FAIL を防ぐ。決定論を保てる最小の規則 |
+| 例外語と禁止語の部分文字列衝突 | 例外出現領域をマスク区間リストとして記録し、重なる出現を禁止語照合から除外 | 免除したはずの語の内部で禁止語が hit する偽 FAIL を防ぐ。番兵文字への置換は入力に同文字が合法出現し得るため不採用 |
 | excerpt の逆写像 | 実装しない（原文行をそのまま返す） | 正規化前後のオフセット対応表は複雑さに見合わない。行単位で L3 の再生成判断には十分 |
 | 語境界の考慮 | しない（純粋な部分文字列一致） | 形態素解析禁止（MUST NOT）。過剰検出は再生成で吸収し、取りこぼしゼロを優先 |
 | マルチパターン照合の最適化 | しない | 想定入力規模で不要。依存ゼロ・可読性優先 |
