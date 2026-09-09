@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/angiodianxin/pink-elephant-guard/schema/manifest.schema.json",
   "title": "pink-elephant-manifest",
-  "description": "L1/L2/L3 間の受け渡しに使う中間生成物 pink-elephant-manifest.json のスキーマ。design-claude.md §7.2 が正本。会話全文・顧客情報・秘密・フルパスを保存してはならない(§17)。",
+  "description": "L1/L2/L3 間の受け渡しに使う中間生成物 pink-elephant-manifest.json のスキーマ。本ファイルが機械可読な正本であり、design-claude.md §7.2 は本ファイルの人間向け解説(差分が生じた場合は本ファイルを優先)。会話全文・顧客情報・秘密・フルパスを保存してはならない(design-claude.md §17)。",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "target_state", "rejected"],
@@ -68,9 +68,16 @@
             "maxLength": 200
           },
           "max_occurrences": {
-            "description": "初稿全体での正規化一致の許容出現回数。",
+            "description": "初稿全体での正規化一致の許容出現回数。回数の免除は L1 の責務で、L2 は回数では免除しない。",
             "type": "integer",
             "minimum": 1
+          },
+          "allowed_surfaces": {
+            "description": "この語の出現を許可する面。surface の値を参照する(surface に含まれない値は不正で exit 2)。L1 は使用せず、L2 が Attention leak 検査で配置を検証する。省略時は面の制限なし。",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "maxLength": 50 }
           },
           "reason": {
             "description": "L2 の Attention leak 判定の参考情報(例: 不使用訴求として指定)。",

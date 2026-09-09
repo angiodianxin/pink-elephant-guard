@@ -143,7 +143,7 @@ SKILL.md にすべての手順を書き、メインモデルが自力で全工�
     }
   ],
   "visible_exceptions": [
-    { "term": "カフェインレス", "max_occurrences": 1, "reason": "不使用訴求として指定" }
+    { "term": "カフェインレス", "max_occurrences": 1, "allowed_surfaces": ["body"], "reason": "不使用訴求として指定" }
   ],
   "surface": ["headline", "body", "cta"]
 }
@@ -162,7 +162,8 @@ SKILL.md にすべての手順を書き、メインモデルが自力で全工�
 | `rejected[].concept` | MUST | 空でない文字列（500文字以内）。L2の意味検査の基準。却下理由の経緯は書かない |
 | `visible_exceptions` | MAY | 省略時は例外なし |
 | `visible_exceptions[].term` | MUST | 空でない文字列 |
-| `visible_exceptions[].max_occurrences` | MUST | 1以上の整数。初稿全体での正規化一致の許容出現回数。超過分のみL1がFAIL |
+| `visible_exceptions[].max_occurrences` | MUST | 1以上の整数。初稿全体での正規化一致の許容出現回数。超過分のみL1がFAIL。**回数の免除はL1の責務であり、L2は回数では免除しない** |
+| `visible_exceptions[].allowed_surfaces` | MAY | この語の出現を許可する面。`surface` の値を参照する。L1は使用せず、L2がAttention leak検査で配置を検証する。省略時は面の制限なし |
 | `visible_exceptions[].reason` | MAY | L2のAttention leak判定の参考情報 |
 | `surface` | MAY | 空でない文字列の配列、重複なし。L2/L3の参考情報でL1は使用しない |
 
@@ -170,6 +171,7 @@ SKILL.md にすべての手順を書き、メインモデルが自力で全工�
 
 - 未知のフィールドを持たない（additionalProperties 禁止。スキーマ拡張は `schema_version` を上げて行う）。
 - `visible_exceptions[].term` は、いずれの `literal_terms` とも正規化後に重複してはならない（同一語に「禁止」と「許可」が同時に付くのを防ぐ。例外扱いにしたい語は `literal_terms` から外し、`visible_exceptions` のみに置く）。
+- `visible_exceptions[].allowed_surfaces` の各値は `surface` に含まれていなければならない（`allowed_surfaces` を使う場合、`surface` の宣言が前提）。
 
 L1 が exit 2（manifest不正・§13.3）で差し戻す条件は次のいずれか:
 JSONとしてパース不能、`schema/manifest.schema.json` 違反（必須欠落・型不一致・制約違反・未知フィールド・未知の `schema_version`）、`rejected[].id` の重複、上記の整合性制約違反。
@@ -329,7 +331,7 @@ PASS判定はL1・L2の機械的/隔離検査の結果からのみ導き、L3の
 
 期待動作:
 
-- 「カフェインレス」を `visible_exceptions`（max_occurrences: 1）として保持し、L1が回数超過を検査する。
+- 「カフェインレス」を `visible_exceptions`（max_occurrences: 1, allowed_surfaces: ["body"]）として保持し、L1が回数超過を、L2が配置を検査する。
 - 通常版や検討経緯は完成稿へ出さない。
 
 ### 12.3 L1で止まる例（Literal leak → 再生成）
@@ -478,7 +480,7 @@ tools: Read
 - 入力は manifest と初稿ファイルのパスのみ。会話の経緯は知らされない前提で書く。
 - Semantic / Rationale / Attention / Visual の4検査を行い、判定と箇所のJSONだけを返す。
 - 修正文・改善案を書いてはならない（修正はL3の責務）。
-- `visible_exceptions` は `max_occurrences` 以内であれば漏れとしない。
+- `visible_exceptions` の回数免除はL1の責務であり、L2は回数では免除しない。L2は `allowed_surfaces` と `reason` を基準に、例外語の配置（許可面の中か）と目的（不使用訴求などの指定意図に沿うか）をAttention leak検査として検証する。`allowed_surfaces` の外に出現した例外語、または指定意図から外れた使われ方はFAILとする。
 
 ### 13.5 配布とインストール
 
