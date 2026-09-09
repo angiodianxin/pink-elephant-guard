@@ -1,0 +1,9 @@
+{
+  "name": "pink-elephant-guard",
+  "description": "Prevent rejected, removed, corrected, or forbidden concepts from resurfacing as the topic of a final deliverable. Isolates change history and rebuilds viewer-facing output from the current state only.",
+  "version": "0.1.0",
+  "author": {
+    "name": "angiodianxin",
+    "url": "https://github.com/angiodianxin"
+  }
+}
