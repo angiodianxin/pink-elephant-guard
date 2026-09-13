@@ -1,0 +1,73 @@
+# `v*` タグの push で L1 CLI を 3 プラットフォームへクロスコンパイルし、
+# SHA-256 チェックサムとともに GitHub Releases へ添付する（design-claude.md §13.3、§13.6。Issue #1）。
+#
+# バイナリは Git にコミットせず Releases だけで配布する（§13.1 MUST）。
+# 手順は README「リリース手順」節を参照。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # Release の作成とアセット添付に必要
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Git タグ・plugin.json の version・CHANGELOG の一致（§13.6 SemVer）。
+      # 不一致なら何も作らず失敗する。
+      - name: Verify tag = plugin.json version = CHANGELOG
+        run: scripts/check-version.sh "$GITHUB_REF_NAME"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: scan/go.mod
+          cache-dependency-path: scan/go.sum
+
+      # リリース前の品質確認（§13.6「go vet + go test を通してからタグを打つ」）
+      - name: go vet
+        run: go vet ./scan/...
+      - name: go test
+        run: go test ./scan/...
+
+      - name: Cross-compile and generate SHA256SUMS.txt
+        run: scripts/build-release.sh dist
+
+      # CHANGELOG の該当版の節をそのままリリースノートにする
+      - name: Extract release notes from CHANGELOG
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > dist/RELEASE_NOTES.md
+          {
+            echo ""
+            echo "## 検証"
+            echo ""
+            echo "添付の \`SHA256SUMS.txt\` と同じディレクトリで \`sha256sum -c SHA256SUMS.txt\` を実行する。"
+          } >> dist/RELEASE_NOTES.md
+          cat dist/RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in
+            *-*) prerelease="--prerelease" ;; # SemVer のプレリリース（v1.2.3-rc.1 など）
+          esac
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file dist/RELEASE_NOTES.md \
+            --verify-tag \
+            $prerelease \
+            dist/pink-elephant-scan_linux_amd64 \
+            dist/pink-elephant-scan_darwin_arm64 \
+            dist/pink-elephant-scan_windows_amd64.exe \
+            dist/SHA256SUMS.txt

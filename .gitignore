@@ -1,5 +1,7 @@
 # Build artifacts (binaries are distributed via GitHub Releases, not Git)
 bin/
+# scripts/build-release.sh の出力（リリース添付物）
+dist/
 
 # Runtime intermediate file — must never be committed (may contain user content)
 pink-elephant-manifest.json
