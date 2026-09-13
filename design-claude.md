@@ -167,13 +167,13 @@ SKILL.md にすべての手順を書き、メインモデルが自力で全工�
 | `visible_exceptions[].reason` | MAY | L2のAttention leak判定の参考情報 |
 | `surface` | MAY | 空でない文字列の配列、重複なし。L2/L3の参考情報でL1は使用しない |
 
-追加の整合性制約（L1が検証し、違反は exit 2）:
+追加の整合性制約（L1が検証し、違反は exit 3）:
 
 - 未知のフィールドを持たない（additionalProperties 禁止。スキーマ拡張は `schema_version` を上げて行う）。
 - `visible_exceptions[].term` は、いずれの `literal_terms` とも正規化後に重複してはならない（同一語に「禁止」と「許可」が同時に付くのを防ぐ。例外扱いにしたい語は `literal_terms` から外し、`visible_exceptions` のみに置く）。
 - `visible_exceptions[].allowed_surfaces` の各値は `surface` に含まれていなければならない（`allowed_surfaces` を使う場合、`surface` の宣言が前提）。
 
-L1 が exit 2（manifest不正・§13.3）で差し戻す条件は次のいずれか:
+L1 が exit 3（manifest不正・§13.3）で差し戻す条件は次のいずれか:
 JSONとしてパース不能、`schema/manifest.schema.json` 違反（必須欠落・型不一致・制約違反・未知フィールド・未知の `schema_version`）、`rejected[].id` の重複、上記の整合性制約違反。
 
 - 作成はL3（工程1の出力）。L1は `literal_terms` と `visible_exceptions` の回数判定を、L2は `rejected[].concept` と `visible_exceptions` を入力にとる。
@@ -240,8 +240,8 @@ CLI `pink-elephant-scan`（Go製バイナリ）を初稿ファイルとmanifest�
 
 - 検査内容: `literal_terms` の完全一致・正規化一致（大文字小文字、全角半角、ひらがな/カタカナ相互）。
 - `visible_exceptions` の語は、出現回数が max_occurrences 以内であればPASS。
-- 出力: JSON（`{"pass": bool, "hits": [{term, line, excerpt}]}`）。終了コード 0=PASS / 1=FAIL。
-- FAILなら工程2へ戻る。**L2は呼ばない。**
+- 出力: JSON（`{"pass": bool, "hits": [{term, line, excerpt}]}`）。終了コード 0=PASS / 1=FAIL（失敗系は 2=引数不正 / 3=manifest不正 / 4=draft読取り不可。§13.3）。
+- FAILなら工程2へ戻る。**L2は呼ばない。** exit 3 なら初稿ではなく manifest を作り直す（工程1へ戻る）。
 
 ### 工程4b: Semantic Scan（L2・Haikuサブエージェント）
 
@@ -442,7 +442,7 @@ description: Prevent rejected, removed, corrected, or forbidden concepts from re
 
 ~~~text
 usage: pink-elephant-scan --manifest <path> --draft <path>
-exit:  0 = PASS / 1 = FAIL / 2 = 入力不正（manifest不正・引数不正・draft読取り不可。詳細は scan/DESIGN.md §2.2）
+exit:  0 = PASS / 1 = FAIL / 2 = 引数不正 / 3 = manifest不正 / 4 = draft読取り不可（詳細は scan/DESIGN.md §2.2）
 stdout: {"pass": bool, "hits": [{"term": "...", "line": n, "excerpt": "..."}]}
 ~~~
 
@@ -452,7 +452,7 @@ stdout: {"pass": bool, "hits": [{"term": "...", "line": n, "excerpt": "..."}]}
 - `CGO_ENABLED=0` でビルドした単一静的バイナリとして配布する（MUST）。実行環境にランタイムを要求しない。
 - 正規化: `x/text/unicode/norm` によるNFKC、`strings.ToLower`、カタカナ→ひらがなの rune シフト（MUST）。形態素解析は行わない（意味検査はL2の責務）。
 - `visible_exceptions` の `max_occurrences` 以内の出現は hit に数えない。超過分のみ FAIL。
-- manifest スキーマ不正は検査せず exit 2 で即時終了し、L3へ差し戻す。
+- manifest スキーマ不正は検査せず exit 3 で即時終了し、L3へ差し戻す。検査を実施できない失敗（exit 2/3/4）で 0/1 を返さない。
 - `scan_test.go` に既知の漏れサンプル集（表記揺れ・全角半角・かな違い・例外の回数超過）を持ち、`go test ./...` で回帰確認する（MUST）。
 - クロスコンパイル: `GOOS`/`GOARCH` 指定で windows/amd64、darwin/arm64、linux/amd64 を生成できること（SHOULD）。
 
