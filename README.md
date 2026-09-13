@@ -8,7 +8,7 @@
 | 層 | 実体 | 役割 | 状態 |
 |---|---|---|---|
 | L1 | `scan/`（Go CLI `pink-elephant-scan`） | 却下語の字面再侵入（Literal leak）を決定論的に検査する。トークン消費 0 | 実装済み |
-| L2 | Haiku サブエージェント | 意味検査（同義語・上位語・言い換え） | 未着手 |
+| L2 | [`agents/semantic-scan.md`](agents/semantic-scan.md)（Haiku サブエージェント） | Semantic / Rationale / Attention / Visual leak を、会話履歴を見ない隔離コンテキストで検査する | 実装済み |
 | L3 | [`skills/pink-elephant-guard/SKILL.md`](skills/pink-elephant-guard/SKILL.md) | 統括・manifest 作成・再生成 | — |
 
 `pink-elephant-manifest.json` は L1/L2/L3 間の中間生成物で、スキーマの正本は
@@ -64,6 +64,31 @@ go get golang.org/x/text@v0.21.0
 版なしの `go get golang.org/x/text` は最新版（v0.42.0 時点）を取りに行き、
 それが `go >= 1.26` を要求するため `go.mod` の go ディレクティブが 1.22 から自動で引き上げられ、
 上記の「Go 1.22+」と両立しなくなる。v0.21.0 は go 1.22 のままで解決できる。
+
+## L2 サブエージェント: pink-elephant-semantic-scan
+
+L1 を PASS した初稿を、[`agents/semantic-scan.md`](agents/semantic-scan.md)（`model: haiku`、`tools: Read`）で
+意味レベルまで検査する。**入力は manifest と初稿のパスだけで、会話履歴・却下理由の経緯は渡さない（MUST）。**
+検査者自身が旧案に汚染されないための隔離であり、この層の価値そのものである。
+
+| 検査 | 確認内容 |
+|---|---|
+| Semantic leak | `rejected[].concept` の同義語・上位語・言い換え・否定形・婉曲表現 |
+| Rationale leak | 削除理由、「代わりに」「以前は」などの変更説明 |
+| Attention leak | 不在・比較・例外語が見出し・冒頭・CTA・結論を占めていないか |
+| Visual leak | （画像・動画プロンプトのみ）削除物の輪郭・破片・影・容器・持ち手・プレースホルダー |
+
+出力は JSON 1 個のみ。
+
+```json
+{ "pass": false, "applied_checks": ["semantic", "rationale", "attention"], "findings": [ ... ] }
+```
+
+- `findings[]` は `check` / `line` / `quote` / `excerpt` / `note` を持つ。**修正文・改善案は返さない**（再生成は L3 の責務）。
+- 判定できない場合（ファイルを読めない・parse できない・初稿が空）は `pass` を含めず `{"error": "..."}` を返す。
+  L1 の「0/1 以外 = 判定なし」と同じく、`pass` の欠如が「判定なし」を表す。
+- `visible_exceptions` の**回数**判定は L1 の責務で、L2 は回数では免除しない。
+  L2 は `allowed_surfaces`（配置）と `reason`（意図）の逸脱だけを Attention leak として見る。
 
 ## 開発手順・回帰確認
 
