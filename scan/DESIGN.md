@@ -16,7 +16,7 @@ L2（Haiku サブエージェント）を呼ぶ前に fail-fast させる。
 
 スコープ内:
 
-- manifest の構文・スキーマ・整合性検証（違反は exit 2）
+- manifest の構文・スキーマ・整合性検証（違反は exit 3）
 - `rejected[].literal_terms` の正規化一致検出
 - `visible_exceptions[].max_occurrences` による回数免除と超過検出
 - 結果の JSON 出力と終了コードによる判定伝達
@@ -46,14 +46,17 @@ usage: pink-elephant-scan --manifest <path> --draft <path>
 
 ### 2.2 終了コード
 
-| exit | 意味 |
-|---|---|
-| 0 | PASS（hit 0 件） |
-| 1 | FAIL（hit 1 件以上） |
-| 2 | 入力不正（manifest 不正、引数不正、ファイル読取り不可） |
+| exit | 意味 | stderr カテゴリ（§2.4） | 呼び出し元の対処 |
+|---|---|---|---|
+| 0 | PASS（hit 0 件） | — | 次工程（L2）へ進む |
+| 1 | FAIL（hit 1 件以上） | — | L3 が初稿を再生成する |
+| 2 | 引数不正（未知フラグ・必須欠落・余分な位置引数） | `usage` | 呼び出し方を直す（L3/hook/CI の組込みバグ） |
+| 3 | manifest 不正（読取り不可・パース不能・スキーマ違反・整合性違反） | `manifest` | L3 が manifest を作り直す |
+| 4 | draft 読取り不可 | `draft` | draft のパス・生成を直す |
 
-検査の判定（0/1）と区別すべき失敗はすべて 2 に寄せる。
-引数不正・draft 読取り不可も「検査が実施できなかった」状態であり、0/1 を返してはならない。
+- 0/1 は「検査の判定」専用とする。検査が実施できなかった失敗は必ず 2/3/4 のいずれかで返し、0/1 を返してはならない。
+- 失敗系の exit code は stderr カテゴリと 1:1 に対応する。機械処理（L3 の分岐・hook・CI）は exit code のみに依存し、stderr を解析しない。
+- 上記に該当しない予期しない失敗（panic 等）も 0/1 以外で終了するため、呼び出し元は「0/1 以外 = 判定なし」として扱えばよい。
 
 ### 2.3 標準出力（exit 0 / 1 のとき）
 
@@ -79,7 +82,7 @@ usage: pink-elephant-scan --manifest <path> --draft <path>
 - 同一行に同一語が複数回出現した場合、出現ごとに 1 hit とする。
 - 出力は `encoding/json` で生成し、`SetEscapeHTML(false)` で日本語をそのまま出す。
 
-### 2.4 標準エラー出力（exit 2 のとき）
+### 2.4 標準エラー出力（exit 2 / 3 / 4 のとき）
 
 stdout には何も出力せず、stderr へ 1 行のメッセージを出す。
 
@@ -89,7 +92,8 @@ pink-elephant-scan: draft error: open draft.txt: no such file or directory
 ```
 
 書式は `pink-elephant-scan: <category> error: <詳細>`（category = `usage` / `manifest` / `draft`）。
-機械処理は終了コードのみに依存させ、stderr の文面は人間向けとする（後方互換の対象にしない）。
+category は §2.2 の exit code と 1:1 に対応する（usage=2 / manifest=3 / draft=4）。
+機械処理は終了コードのみに依存させ、stderr の文面は人間向けとする（category 接頭辞を含め文面は後方互換の対象にしない — 区別が必要な機械処理は exit code を使う）。
 
 ## 3. ファイル構成と責務
 
@@ -140,13 +144,14 @@ func Normalize(s string) string
 - **漢字⇔かな（`桜`⇔`さくら`）は正規化で吸収しない。** これは表記揺れ展開であり、L3 が `literal_terms` に列挙する責務（§7.2）。§12.3 の受け入れ例が成立するのは、manifest 側に `"桜あんぱん", "さくらあんぱん", "sakura anpan"` が展開済みだからである。
 - 長音・中点・空白の除去や揺らぎ吸収（`サーバ`/`サーバー` 等）は行わない。必要なら L3 が展開する。
 - 形態素解析・分かち書きは行わない（MUST NOT）。部分文字列一致のため、語境界は考慮しない（`りんご` は `りんごあめ` にも hit する。過剰検出は再生成コストで許容し、取りこぼしを許容しない方針）。
-- 照合は行単位（§6.1）のため、`literal_terms`・`visible_exceptions[].term` は改行を含まない単一行の語とする。改行（CR/LF）を含む語は manifest 不正（exit 2、§5）として拒否する — 受理すると、どの行にも一致し得ない語が有効扱いとなり、検出漏れが黙って通るため。初稿側で行をまたぐ出現は検出しない（既知の限界。テスト設計 D-04 で現状仕様として固定する）。
+- 照合は行単位（§6.1）のため、`literal_terms`・`visible_exceptions[].term` は改行を含まない単一行の語とする。改行（CR/LF）を含む語は manifest 不正（exit 3、§5）として拒否する — 受理すると、どの行にも一致し得ない語が有効扱いとなり、検出漏れが黙って通るため。初稿側で行をまたぐ出現は検出しない（既知の限界。テスト設計 D-04 で現状仕様として固定する）。
 
 正規化により文字数・オフセットが原文とずれるため、**行番号は原文の行分割で確定し、行内の照合と出現位置は正規化後の行テキスト上で行う**。excerpt は原文の行から §2.3 の規則（前後空白除去・120 rune 超は切り詰め）で生成し、正規化後オフセットから原文オフセットへの逆写像は実装しない（設計判断: 決定論と単純さを優先）。
 
-## 5. manifest 検証仕様（exit 2 の条件）
+## 5. manifest 検証仕様（exit 3 の条件）
 
-`ParseManifest([]byte) (*Manifest, error)` が次を順に検証し、最初の違反で error を返す（main が exit 2 に写す）。
+`ParseManifest([]byte) (*Manifest, error)` が次を順に検証し、最初の違反で error を返す（main が exit 3 に写す）。
+manifest ファイル自体の読取り不可も同じ `manifest` カテゴリの失敗として exit 3 で返す（§2.2）。
 
 1. **JSON パース**: `json.Decoder` + `DisallowUnknownFields()` でデコードする。パース不能・未知フィールドは不正（additionalProperties 禁止に対応）。デコード成功後にもう一度 `Decode` を呼び `io.EOF` を確認することで、単一の JSON 値の後に別の値やゴミが続く入力（例: `{...}{...}`）を不正として弾く。
 2. **スキーマ制約**（`schema/manifest.schema.json` と同値になるよう手書き検証）:
@@ -186,7 +191,7 @@ func Normalize(s string) string
 
 ### 6.2 手順1: visible_exceptions の回数判定とマスク
 
-`literal_terms` より先に例外語を処理する。例外語と禁止語が正規化後に「完全一致」することは exit 2 で排除済みだが、**部分文字列関係**（例: `literal_terms` に `カフェ`、例外に `カフェインレス`）はあり得るため、例外語の出現領域をマスクしてから禁止語照合を行う。
+`literal_terms` より先に例外語を処理する。例外語と禁止語が正規化後に「完全一致」することは exit 3 で排除済みだが、**部分文字列関係**（例: `literal_terms` に `カフェ`、例外に `カフェインレス`）はあり得るため、例外語の出現領域をマスクしてから禁止語照合を行う。
 
 1. `visible_exceptions` を manifest 記載順に処理する。各例外語について、初稿全体を行順・行内左→右の順に走査し、正規化済み行内の出現を非重複（`strings.Index` を見つけた長さ分進める greedy）で数える。
 2. 各出現について:
@@ -203,7 +208,7 @@ func Normalize(s string) string
 1. 全 `rejected[].literal_terms` を manifest 記載順（`rejected` の順 → 各 `literal_terms` の順）に処理する。
 2. 各語について、正規化済み各行を走査し、マスク区間と重ならない非重複の出現ごとに `{"term": <原表記>, "line": n, "excerpt": <原文行から §2.3 の規則で生成>}` を hit に追加する。
    - 正規化後の形が異なる語同士は、同一領域に重なって hit してよい（`さくら` と `さくらあんぱん` が両方登録されていれば両方 hit する）。マスクは行わない。
-   - **正規化後に同形となる複数の語**（例: `サクラアンパン` と `さくらあんぱん`。原表記の重複のみ exit 2 で弾くため、正規化後の重複は合法）は 1 つの照合対象として扱い、1 出現につき hit は 1 件とする。`term` には処理順（`rejected` の順 → 各 `literal_terms` の順）で最初の原表記を報告する。重複排除は同一 `rejected` 内に閉じず manifest 全体で行う（テスト設計 S-10 / S-11 の契約）。
+   - **正規化後に同形となる複数の語**（例: `サクラアンパン` と `さくらあんぱん`。原表記の重複のみ exit 3 で弾くため、正規化後の重複は合法）は 1 つの照合対象として扱い、1 出現につき hit は 1 件とする。`term` には処理順（`rejected` の順 → 各 `literal_terms` の順）で最初の原表記を報告する。重複排除は同一 `rejected` 内に閉じず manifest 全体で行う（テスト設計 S-10 / S-11 の契約）。
 3. 1 出現でも hit があれば FAIL。
 
 ### 6.4 結果生成
@@ -253,18 +258,18 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o .
 | 7 | 例外と禁止語の部分文字列 | terms=`カフェ`、exception=`カフェインレス`×1、draft「カフェインレス」1 回 | exit 0（マスクにより `カフェ` は hit しない） |
 | 8 | PASS | terms=`桜あんぱん`、draft「クロワッサン3種と自家焙煎コーヒー」 | exit 0、`{"pass":true,"hits":[]}` |
 | 9 | 複数行・行番号 | 3 行目にのみ一致 | hit の line=3、excerpt=原文行から §2.3 の規則で生成 |
-| 10 | manifest: JSON 破損 | `{` | exit 2、stdout 空 |
-| 11 | manifest: 未知フィールド | `{"extra": 1, ...}` | exit 2 |
-| 12 | manifest: 未知の版 | `"schema_version": 2` | exit 2 |
-| 13 | manifest: id 重複 / id パターン違反 | `r1` 重複、`R-1` | exit 2 |
-| 14 | manifest: 例外と literal の正規化重複 | terms=`カフェインレス`、exception=`かふぇいんれす` | exit 2 |
-| 15 | manifest: allowed_surfaces ⊄ surface | surface 未宣言 + allowed_surfaces あり | exit 2 |
-| 16 | draft 不在 | 存在しないパス | exit 2、stderr に draft error |
+| 10 | manifest: JSON 破損 | `{` | exit 3、stdout 空 |
+| 11 | manifest: 未知フィールド | `{"extra": 1, ...}` | exit 3 |
+| 12 | manifest: 未知の版 | `"schema_version": 2` | exit 3 |
+| 13 | manifest: id 重複 / id パターン違反 | `r1` 重複、`R-1` | exit 3 |
+| 14 | manifest: 例外と literal の正規化重複 | terms=`カフェインレス`、exception=`かふぇいんれす` | exit 3 |
+| 15 | manifest: allowed_surfaces ⊄ surface | surface 未宣言 + allowed_surfaces あり | exit 3 |
+| 16 | draft 不在 | 存在しないパス | exit 4、stderr に draft error |
 | 17 | Normalize 単体 | `ｻｸﾗ`→`さくら`、`ＳＡＫＵＲＡ`→`sakura`、`ヴ`→`ゔ`、`ー`→`ー` | 表どおり |
-| 18 | manifest: 末尾ゴミ | `{...}{...}`、`{...} x` | exit 2（単一 JSON 値でない） |
-| 19 | manifest: 明示的 null | `"visible_exceptions": null`、`"surface": null` | exit 2（欠落は許容、null は不正） |
+| 18 | manifest: 末尾ゴミ | `{...}{...}`、`{...} x` | exit 3（単一 JSON 値でない） |
+| 19 | manifest: 明示的 null | `"visible_exceptions": null`、`"surface": null` | exit 3（欠落は許容、null は不正） |
 | 20 | 番兵文字を含む入力 | terms=`�`（U+FFFD）、draft に例外語出現あり | 例外マスクが U+FFFD を偽 hit させない（区間管理の回帰） |
-| 21 | manifest: 改行を含む term | literal_terms に `"桜\nあんぱん"` | exit 2 |
+| 21 | manifest: 改行を含む term | literal_terms に `"桜\nあんぱん"` | exit 3 |
 | 22 | rejected 横断の重複排除 | r1 に `サクラアンパン`、r2 に `さくらあんぱん`、draft に 1 出現 | exit 1、hit 1 件（term=`サクラアンパン`） |
 
 テストはモデルを介さず `go test ./scan/...` のみで再現でき、CI（および §13.3 の hook/linter 組込み）でそのまま使える。
@@ -273,7 +278,7 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o .
 
 | 判断 | 採用 | 理由・棄却案 |
 |---|---|---|
-| exit 2 の範囲 | manifest 不正に加え引数不正・draft 読取り不可も 2 | 0/1 は「検査の判定」専用に保つ。exit 3 の新設は Issue の契約（0/1/2）を壊すため棄却 |
+| exit code の粒度 | 0/1 = 検査の判定、2 = 引数不正、3 = manifest 不正、4 = draft 読取り不可 | 0/1 は「検査の判定」専用に保つ。失敗系を stderr カテゴリ（usage/manifest/draft）と 1:1 に対応させ、呼び出し元（L3・hook・CI）が「呼び出しを直す / manifest を作り直す / draft のパスを直す」を stderr の解析なしに分岐できるようにする。旧契約「入力不正を一律 exit 2 に寄せる（0/1/2 のみ）」は撤廃した。usage=2 は `flag` パッケージ・Unix 慣習（誤用 = 2）とも一致する |
 | スキーマ検証の実装 | 手書き検証 + `DisallowUnknownFields` | JSON Schema ライブラリは依存追加禁止（MUST）に抵触。二重管理はテストで担保 |
 | 例外語と禁止語の部分文字列衝突 | 例外出現領域をマスク区間リストとして記録し、重なる出現を禁止語照合から除外 | 免除したはずの語の内部で禁止語が hit する偽 FAIL を防ぐ。番兵文字への置換は入力に同文字が合法出現し得るため不採用 |
 | excerpt の逆写像 | 実装しない（原文行に §2.3 の前後空白除去・切り詰めのみ適用して返す） | 正規化前後のオフセット対応表は複雑さに見合わない。行単位で L3 の再生成判断には十分 |
