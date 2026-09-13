@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 )
 
 // 終了コード（scan/DESIGN.md §2.2）。0/1 は検査の判定専用で、
@@ -16,15 +17,29 @@ const (
 	exitUsage    = 2 // 引数不正
 	exitManifest = 3 // manifest 不正
 	exitDraft    = 4 // draft 読取り不可
-	// exitInternal は上表に該当しない予期しない失敗（stdout へ書けない等）。
-	// §2.2 のとおり呼び出し元は「0/1 以外 = 判定なし」として扱えばよい。
-	exitInternal = 5
+	exitInternal = 5 // 内部エラー（判定は済んだが stdout へ書けない・予期しない panic）
 )
 
 const usageLine = "usage: pink-elephant-scan --manifest <path> --draft <path>"
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(guard(os.Stderr, func() int {
+		return run(os.Args[1:], os.Stdout, os.Stderr)
+	}))
+}
+
+// guard は fn の panic を internal カテゴリの失敗（exit 5）へ写す。
+// Go ランタイムは回復しない panic を exit 2 で終了させるため、素通しにすると
+// 引数不正（usage）と区別できず、呼び出し元が「呼び出し方が間違っている」と誤解する
+// （scan/DESIGN.md §2.2）。診断のためスタックトレースは stderr へ残す。
+func guard(stderr io.Writer, fn func() int) (code int) {
+	defer func() {
+		if r := recover(); r != nil {
+			code = fail(stderr, exitInternal, "internal", "panic: %v", r)
+			stderr.Write(debug.Stack())
+		}
+	}()
+	return fn()
 }
 
 // fail は §2.4 の書式で stderr へ 1 行出し、そのカテゴリに対応する終了コードを返す。
@@ -77,8 +92,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	enc.SetEscapeHTML(false) // < > & をそのまま出す（§2.3）
 	if err := enc.Encode(result); err != nil {
 		// 判定はできているが伝達できないため、0/1 は返さない。
-		fmt.Fprintf(stderr, "pink-elephant-scan: internal error: %v\n", err)
-		return exitInternal
+		return fail(stderr, exitInternal, "internal", "%v", err)
 	}
 	if result.Pass {
 		return exitPass

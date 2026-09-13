@@ -53,11 +53,12 @@ usage: pink-elephant-scan --manifest <path> --draft <path>
 | 2 | 引数不正（未知フラグ・必須欠落・余分な位置引数） | `usage` | 呼び出し方を直す（L3/hook/CI の組込みバグ） |
 | 3 | manifest 不正（読取り不可・パース不能・スキーマ違反・整合性違反） | `manifest` | L3 が manifest を作り直す |
 | 4 | draft 読取り不可 | `draft` | draft のパス・生成を直す |
+| 5 | 内部エラー（判定は済んだが stdout へ書けない・予期しない panic） | `internal` | 本 CLI のバグとして報告する |
 
-- 0/1 は「検査の判定」専用とする。検査が実施できなかった失敗は必ず 2/3/4 のいずれかで返し、0/1 を返してはならない。
+- 0/1 は「検査の判定」専用とする。検査が実施できなかった失敗、および判定を伝達できなかった失敗は必ず 2/3/4/5 のいずれかで返し、0/1 を返してはならない。
 - 失敗系の exit code は stderr カテゴリと 1:1 に対応する。機械処理（L3 の分岐・hook・CI）は exit code のみに依存し、stderr を解析しない。
-- 上記に該当しない予期しない失敗（panic 等）も 0/1 以外で終了するため、呼び出し元は「0/1 以外 = 判定なし」として扱えばよい。
-  判定は済んだが stdout へ書き出せなかった場合がこれに当たり、exit 5（stderr カテゴリ `internal`）で終了する。検査の判定を伝達できていない以上 0/1 を返してはならず、かつ 2/3/4 のいずれの原因でもないため、別の値を充てる。
+- **予期しない失敗は `main()` で `recover()` し、exit 5 へ写す（MUST）。** Go ランタイムは回復しない panic を **exit 2** で終了させるため、素通しにすると引数不正（`usage`）と区別できず、呼び出し元が「呼び出し方が間違っている」と誤解する。判定は済んだが stdout へ書き出せなかった場合も同じく exit 5 とする。
+- 以上により「0/1 以外 = 判定なし」が成立し、呼び出し元はそれだけを見て分岐できる。ただし SIGPIPE 等でプロセスがシグナル終了する場合（シェル上は exit 128+N）は本 CLI の制御外で、これも 0/1 以外として扱われる。
 
 ### 2.3 標準出力（exit 0 / 1 のとき）
 
@@ -84,7 +85,7 @@ usage: pink-elephant-scan --manifest <path> --draft <path>
 - 同一行に同一語が複数回出現した場合、出現ごとに 1 hit とする。
 - 出力は `encoding/json` で生成し、`SetEscapeHTML(false)` で日本語をそのまま出す。
 
-### 2.4 標準エラー出力（exit 2 / 3 / 4 のとき）
+### 2.4 標準エラー出力（exit 2 / 3 / 4 / 5 のとき）
 
 stdout には何も出力せず、stderr へ 1 行のメッセージを出す。
 
@@ -93,8 +94,9 @@ pink-elephant-scan: manifest error: rejected[1].id "r1" duplicates rejected[0].i
 pink-elephant-scan: draft error: open draft.txt: no such file or directory
 ```
 
-書式は `pink-elephant-scan: <category> error: <詳細>`（category = `usage` / `manifest` / `draft`）。
-category は §2.2 の exit code と 1:1 に対応する（usage=2 / manifest=3 / draft=4）。
+書式は `pink-elephant-scan: <category> error: <詳細>`（category = `usage` / `manifest` / `draft` / `internal`）。
+category は §2.2 の exit code と 1:1 に対応する（usage=2 / manifest=3 / draft=4 / internal=5）。
+`internal` のみ、診断のため 1 行目に続けてスタックトレースを出してよい（他のカテゴリは 1 行のみ）。
 機械処理は終了コードのみに依存させ、stderr の文面は人間向けとする（category 接頭辞を含め文面は後方互換の対象にしない — 区別が必要な機械処理は exit code を使う）。
 
 ## 3. ファイル構成と責務
@@ -280,7 +282,8 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o .
 
 | 判断 | 採用 | 理由・棄却案 |
 |---|---|---|
-| exit code の粒度 | 0/1 = 検査の判定、2 = 引数不正、3 = manifest 不正、4 = draft 読取り不可 | 0/1 は「検査の判定」専用に保つ。失敗系を stderr カテゴリ（usage/manifest/draft）と 1:1 に対応させ、呼び出し元（L3・hook・CI）が「呼び出しを直す / manifest を作り直す / draft のパスを直す」を stderr の解析なしに分岐できるようにする。旧契約「入力不正を一律 exit 2 に寄せる（0/1/2 のみ）」は撤廃した。usage=2 は `flag` パッケージ・Unix 慣習（誤用 = 2）とも一致する |
+| exit code の粒度 | 0/1 = 検査の判定、2 = 引数不正、3 = manifest 不正、4 = draft 読取り不可、5 = 内部エラー | 0/1 は「検査の判定」専用に保つ。失敗系を stderr カテゴリ（usage/manifest/draft/internal）と 1:1 に対応させ、呼び出し元（L3・hook・CI）が「呼び出しを直す / manifest を作り直す / draft のパスを直す / バグとして報告する」を stderr の解析なしに分岐できるようにする。旧契約「入力不正を一律 exit 2 に寄せる（0/1/2 のみ）」は撤廃した。usage=2 は `flag` パッケージ・Unix 慣習（誤用 = 2）とも一致する |
+| panic の扱い | `main()` で `recover()` し exit 5 へ写す | Go の既定の panic 終了コードは 2 で、`usage` と衝突する。素通しでは「0/1 以外 = 判定なし」は保てても、呼び出し元が原因を取り違える。exit 5 を internal カテゴリとして立て、非判定系の終了をすべてカテゴリと 1:1 にした。棄却案「表外の値を増やさず既存のどれかへ寄せる」は、引数も manifest も draft も正しいのに usage/manifest/draft を名乗ることになり、カテゴリの意味が壊れる |
 | スキーマ検証の実装 | 手書き検証 + `DisallowUnknownFields` | JSON Schema ライブラリは依存追加禁止（MUST）に抵触。二重管理はテストで担保 |
 | 例外語と禁止語の部分文字列衝突 | 例外出現領域をマスク区間リストとして記録し、重なる出現を禁止語照合から除外 | 免除したはずの語の内部で禁止語が hit する偽 FAIL を防ぐ。番兵文字への置換は入力に同文字が合法出現し得るため不採用 |
 | excerpt の逆写像 | 実装しない（原文行に §2.3 の前後空白除去・切り詰めのみ適用して返す） | 正規化前後のオフセット対応表は複雑さに見合わない。行単位で L3 の再生成判断には十分 |

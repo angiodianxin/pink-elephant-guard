@@ -35,9 +35,11 @@ usage: pink-elephant-scan --manifest <path> --draft <path>
 | 2 | 引数不正（未知フラグ・必須欠落・余分な位置引数） | `usage` | 呼び出し方を直す |
 | 3 | manifest 不正（読取り不可・パース不能・スキーマ違反・整合性違反） | `manifest` | L3 が manifest を作り直す |
 | 4 | draft 読取り不可 | `draft` | draft のパス・生成を直す |
+| 5 | 内部エラー（判定は済んだが stdout へ書けない・予期しない panic） | `internal` | 本 CLI のバグとして報告する |
 
-失敗系（2/3/4）では stdout へ何も出さない。exit code は stderr カテゴリと 1:1 に対応し、
+失敗系（2/3/4/5）では stdout へ検査結果を出さない。exit code は stderr カテゴリと 1:1 に対応し、
 機械処理（L3 の分岐・hook・CI）は exit code のみに依存して stderr を解析しない。
+呼び出し元は「0/1 以外 = 判定なし」として扱えばよい。
 
 詳細な入出力契約は [`scan/DESIGN.md`](scan/DESIGN.md) を参照。
 
@@ -104,6 +106,7 @@ go test ./scan/...
 | `TestScanHitDetails` / `TestScanHitOrdering` / `TestScanHitTieBreak` | 行番号・excerpt・hits の整列（行 → オフセット → 処理順） |
 | `TestManifestValidation` | exit 3 となる manifest 不正の網羅（`scan/DESIGN.md` §5 の全制約） |
 | `TestRunExitCodes` | 終了コード（0〜4）、stdout JSON の生文字列（JSON タグと `SetEscapeHTML(false)` を含む）、exit code と stderr カテゴリの 1:1 対応 |
+| `TestInternalErrors` | internal カテゴリ（exit 5）— stdout へ書けない場合に 0/1 を返さないこと、panic を `usage` の exit 2 と衝突させずに写すこと |
 
 実装が参照すべき関数シグネチャと「変更不可の契約」3 点は `scan/scan_test.go` 冒頭の
 パッケージコメントにまとめてある。
