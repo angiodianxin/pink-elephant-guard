@@ -12,7 +12,7 @@
 //	func Normalize(s string) string                        // normalize.go
 //	func ParseManifest(b []byte) (*Manifest, error)        // scan.go
 //	func Scan(m *Manifest, draft string) Result            // scan.go
-//	func run(args []string, stdout, stderr io.Writer) int  // main.go（戻り値がそのまま終了コード）
+//	func run(args []string, stdout, stderr io.Writer) int  // main.go（戻り値がそのまま終了コード。0〜4、scan/DESIGN.md §2.2）
 //
 //	type Manifest struct{ ... }                            // ParseManifest の戻り値。フィールドは本ファイルからは参照しない
 //	type Result struct{ Pass bool; Hits []Hit }            // JSON タグ: pass / hits（hits は 0 件でも [] で出す）
@@ -35,6 +35,49 @@ import (
 	"strings"
 	"testing"
 )
+
+// ---------------------------------------------------------------------------
+// 失敗系の終了コード（scan/DESIGN.md §2.2・§2.4）
+//
+// 失敗系の exit code は stderr カテゴリと 1:1 に対応する。機械処理（L3 の分岐・hook・CI）は
+// exit code のみに依存し stderr を解析しないため、この対応関係そのものが契約である。
+// 対応を 1 箇所で宣言し、各テストはカテゴリを選ぶだけにして、両者が食い違えば落ちるようにする。
+// ---------------------------------------------------------------------------
+
+const (
+	categoryUsage    = "usage"    // 引数不正（未知フラグ・必須欠落・余分な位置引数）
+	categoryManifest = "manifest" // manifest 不正（読取り不可・パース不能・スキーマ違反・整合性違反）
+	categoryDraft    = "draft"    // draft 読取り不可
+)
+
+var failureExit = map[string]int{
+	categoryUsage:    2,
+	categoryManifest: 3,
+	categoryDraft:    4,
+}
+
+// checkFailure は失敗系の外形契約を検証する。
+// exit code がカテゴリと 1:1 で対応すること、stdout へ検査結果 JSON を出さないこと、
+// stderr が §2.4 の書式であること。stderr の詳細文言は後方互換の対象外のため、
+// カテゴリ接頭辞までを検証し、それより先には依存させない。
+func checkFailure(t *testing.T, category string, code int, stdout, stderr string) {
+	t.Helper()
+
+	wantExit, ok := failureExit[category]
+	if !ok {
+		t.Fatalf("未知の stderr カテゴリ %q", category)
+	}
+	if code != wantExit {
+		t.Errorf("run() = %d, want %d（カテゴリ %s。stderr: %s）", code, wantExit, category, stderr)
+	}
+	if stdout != "" {
+		t.Errorf("exit %d では検査結果 JSON を出力しない, got %q", wantExit, stdout)
+	}
+	wantPrefix := "pink-elephant-scan: " + category + " error: "
+	if !strings.HasPrefix(stderr, wantPrefix) {
+		t.Errorf("stderr = %q, want 接頭辞 %q", stderr, wantPrefix)
+	}
+}
 
 // ---------------------------------------------------------------------------
 // 標準フィクスチャ（docs/issue-8-scan-test-design.md §4）
@@ -731,22 +774,14 @@ func TestManifestValidation(t *testing.T) {
 				t.Fatalf("ParseManifest() で予期しないエラー: %v", err)
 			}
 
-			// run() 経由でも同じ判定（exit 2 / stdout 空）になることを確かめる。
+			// run() 経由でも manifest カテゴリの失敗（exit 3 / stdout 空）になることを確かめる。
 			manifestPath := writeTemp(t, "manifest.json", string(src))
 			draftPath := writeTemp(t, "draft.txt", cleanDraft)
 			var stdout, stderr bytes.Buffer
 			code := run([]string{"--manifest", manifestPath, "--draft", draftPath}, &stdout, &stderr)
 
 			if tc.wantErr {
-				if code != 2 {
-					t.Errorf("run() = %d, want 2（stderr: %s）", code, stderr.String())
-				}
-				if stdout.Len() != 0 {
-					t.Errorf("exit 2 では stdout へ出力しない, got %q", stdout.String())
-				}
-				if !strings.HasPrefix(stderr.String(), "pink-elephant-scan: manifest error: ") {
-					t.Errorf("stderr = %q, want manifest カテゴリの接頭辞", stderr.String())
-				}
+				checkFailure(t, categoryManifest, code, stdout.String(), stderr.String())
 			} else if code != 0 {
 				t.Errorf("run() = %d, want 0（stderr: %s）", code, stderr.String())
 			}
@@ -811,7 +846,7 @@ func TestRunExitCodes(t *testing.T) {
 					"--draft", writeTemp(t, "draft.txt", cleanDraft),
 				}
 			},
-			category: "manifest",
+			category: categoryManifest,
 		},
 		{
 			name: "E-04 draft のファイルが存在しない",
@@ -821,14 +856,14 @@ func TestRunExitCodes(t *testing.T) {
 					"--draft", filepath.Join(t.TempDir(), "missing-draft.txt"),
 				}
 			},
-			category: "draft",
+			category: categoryDraft,
 		},
 		{
 			name: "E-05 引数不足",
 			args: func(t *testing.T) []string {
 				return []string{"--manifest", writeTemp(t, "manifest.json", standardManifest)}
 			},
-			category: "usage",
+			category: categoryUsage,
 		},
 		{
 			name: "E-06 manifest のファイルが存在しない",
@@ -838,7 +873,7 @@ func TestRunExitCodes(t *testing.T) {
 					"--draft", writeTemp(t, "draft.txt", cleanDraft),
 				}
 			},
-			category: "manifest",
+			category: categoryManifest,
 		},
 		{
 			name: "E-07 未知のフラグ",
@@ -849,7 +884,7 @@ func TestRunExitCodes(t *testing.T) {
 					"--surface", "body",
 				}
 			},
-			category: "usage",
+			category: categoryUsage,
 		},
 		{
 			name: "E-08 余分な位置引数",
@@ -860,7 +895,7 @@ func TestRunExitCodes(t *testing.T) {
 					"extra.txt",
 				}
 			},
-			category: "usage",
+			category: categoryUsage,
 		},
 	}
 
@@ -869,17 +904,7 @@ func TestRunExitCodes(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			code := run(tc.args(t), &stdout, &stderr)
 
-			if code != 2 {
-				t.Errorf("run() = %d, want 2（stderr: %s）", code, stderr.String())
-			}
-			if stdout.Len() != 0 {
-				t.Errorf("exit 2 では検査結果 JSON を出力しない, got %q", stdout.String())
-			}
-			// stderr の詳細文言は後方互換の対象外。カテゴリ接頭辞までを検証する。
-			wantPrefix := "pink-elephant-scan: " + tc.category + " error: "
-			if !strings.HasPrefix(stderr.String(), wantPrefix) {
-				t.Errorf("stderr = %q, want 接頭辞 %q", stderr.String(), wantPrefix)
-			}
+			checkFailure(t, tc.category, code, stdout.String(), stderr.String())
 		})
 	}
 }

@@ -33,11 +33,16 @@
 usage: pink-elephant-scan --manifest <path> --draft <path>
 ```
 
-| exit | 意味 |
-|---|---|
-| 0 | PASS（hit 0 件）。stdout に `{"pass":true,"hits":[]}` |
-| 1 | FAIL（hit 1 件以上）。stdout に hit の一覧 |
-| 2 | 入力不正（manifest 不正・引数不正・ファイル読取り不可）。stdout には何も出さない |
+| exit | 意味 | stderr カテゴリ | 呼び出し元の対処 |
+|---|---|---|---|
+| 0 | PASS（hit 0 件）。stdout に `{"pass":true,"hits":[]}` | — | 次工程（L2）へ進む |
+| 1 | FAIL（hit 1 件以上）。stdout に hit の一覧 | — | L3 が初稿を再生成する |
+| 2 | 引数不正（未知フラグ・必須欠落・余分な位置引数） | `usage` | 呼び出し方を直す |
+| 3 | manifest 不正（読取り不可・パース不能・スキーマ違反・整合性違反） | `manifest` | L3 が manifest を作り直す |
+| 4 | draft 読取り不可 | `draft` | draft のパス・生成を直す |
+
+失敗系（2/3/4）では stdout へ何も出さない。exit code は stderr カテゴリと 1:1 に対応し、
+機械処理（L3 の分岐・hook・CI）は exit code のみに依存して stderr を解析しない。
 
 詳細な入出力契約は [`scan/DESIGN.md`](scan/DESIGN.md) を参照。
 
@@ -98,8 +103,8 @@ go test ./scan/...
 | `TestScanVisibleExceptions` / `TestScanExceptionMasksLiteral` | `visible_exceptions` の回数判定と例外マスク |
 | `TestScanNegativeControl` | 偽陽性のない陰性対照、`hits` が `[]`（`null` でない）こと |
 | `TestScanHitDetails` / `TestScanHitOrdering` | 行番号・excerpt・hits の整列 |
-| `TestManifestValidation` | exit 2 となる manifest 不正の網羅 |
-| `TestRunExitCodes` | 終了コードと stdout JSON / stderr カテゴリ |
+| `TestManifestValidation` | exit 3 となる manifest 不正の網羅 |
+| `TestRunExitCodes` | 終了コード（0〜4）と stdout JSON、exit code と stderr カテゴリの 1:1 対応 |
 
 実装が参照すべき関数シグネチャと「変更不可の契約」3 点は `scan/scan_test.go` 冒頭の
 パッケージコメントにまとめてある。
