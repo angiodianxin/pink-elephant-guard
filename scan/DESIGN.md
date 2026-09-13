@@ -78,6 +78,7 @@ usage: pink-elephant-scan --manifest <path> --draft <path>
 | `hits[].line` | int | 初稿内の行番号（1 始まり） |
 | `hits[].excerpt` | string | 該当行の原文。前後の空白を除去し、120 rune を超える場合は先頭 120 rune + `…` に切り詰める |
 
+- excerpt の「前後の空白」は Unicode の White_Space（`strings.TrimSpace` 相当）とする。半角スペース・タブのほか全角スペース `　`(U+3000) や行末に残った `\r` も除去対象。
 - `hits` は行番号昇順 → 行内の出現位置（正規化後テキスト上の rune オフセット）昇順で整列する。
 - 同一行に同一語が複数回出現した場合、出現ごとに 1 hit とする。
 - 出力は `encoding/json` で生成し、`SetEscapeHTML(false)` で日本語をそのまま出す。

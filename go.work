@@ -1,0 +1,6 @@
+// scan/ を単一モジュールとして持つワークスペース。
+// リポジトリルートから `go vet ./scan/...` / `go test ./scan/...` を実行できるようにする
+// （docs/issue-8-scan-test-design.md §6 の回帰確認コマンド）。
+go 1.22
+
+use ./scan

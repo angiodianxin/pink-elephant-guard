@@ -151,6 +151,18 @@ S-10（専用 manifest。`サクラアンパン` と `さくらあんぱん` は
 | V-06 | 例外語ゼロ、rejected もゼロ出現 | PASS, 0 hits | 例外は「出現義務」ではない（0回でも PASS） |
 | V-07 | 専用 manifest: literal_terms に `�`（U+FFFD）、例外 `カフェインレス`×1、初稿に `カフェインレス` が1回（`�` は無い） | PASS, 0 hits | 例外マスクが区間管理であり文字置換でないこと（U+FFFD を偽 hit させない。`scan/DESIGN.md` §6.2） |
 
+さらに `TestScanExceptionMasksLiteral` で §6.2 のマスク仕様そのものを固定する。
+V-07 は「U+FFFD を偽 hit させない」ことしか縛らないため、次を併置する。
+
+| ID | 条件 | 期待 | 検証点 |
+|---|---|---|---|
+| X-01 | rejected `カフェ`、例外 `カフェインレス`×1、初稿に `カフェインレス` が1回 | PASS | 免除した例外語の内部は禁止語照合の対象外 |
+| X-02 | 同上、初稿の別行に `併設カフェ` | FAIL, 1 hit（`カフェ`） | 例外語の外側は通常どおり検出する |
+| X-03 | 同上、初稿に `カフェインレス` が2回 | FAIL, 1 hit（超過した `カフェインレス` のみ） | **超過分もマスクする**（免除・超過を問わず記録） |
+| X-04 | rejected `レスの`、例外 `カフェインレス`×1、初稿 `カフェインレスの豆` | PASS | マスクと **1 rune でも重なる**出現を無視する（完全包含のみではない） |
+| X-05 | 例外 `カフェインレス`×1 と `インレ`×1、初稿 `カフェインレスの豆` / `インレスではない普通の豆` | PASS | 例外語同士のマスクは manifest 記載順に早い者勝ち |
+| X-06 | 例外 `ああ`×1、初稿 `あああ` | PASS | 出現回数は非重複 greedy で数える（重複カウントしない） |
+
 ### 5.4 `TestScanNegativeControl` — 偽陽性のない陰性対照（チェックリスト 5）
 
 | ID | 初稿 | 期待 |
@@ -168,7 +180,8 @@ hit の詳細フィールドを次のとおり契約として固定する:
 
 - `line`: 初稿の **1始まり**の行番号。行の区切りは `\n`（`\r\n` は `\r` を行末から除去して扱う）。
 - `excerpt`: **正規化前の原文**の該当行から前後の空白を除去したもの。120 rune を超える場合は
-  先頭 120 rune + `…` に切り詰める（`scan/DESIGN.md` §2.3）。
+  先頭 120 rune + `…` に切り詰める（`scan/DESIGN.md` §2.3）。除去する「空白」は Unicode の
+  White_Space（`strings.TrimSpace` 相当）であり、全角スペース `　`(U+3000) も含む（D-07）。
 - 照合は行単位で行う。改行を含む literal_terms / term は manifest 不正（exit 3、M-15）。
   初稿側で行をまたぐ一致は検出しない（既知の限界として §15 に記載する対象。テストでは
   「行またぎは検出されない」ことを仕様の現状として固定する D-04 を置く）。
@@ -185,6 +198,7 @@ hit の詳細フィールドを次のとおり契約として固定する:
 | D-06a | 一致を含む、trim 後ちょうど 120 rune の行 | excerpt は 120 rune 全体、`…` を付けない（境界の下側） |
 | D-06b | 一致を含む、trim 後 121 rune の行 | excerpt は先頭 120 rune + `…`（境界の上側） |
 | D-07 | 行頭に空白 + 一致 | excerpt は前後空白を除去した原文行 |
+| D-08 | rejected に `さくら` と `さくらあんぱん`、初稿 `さくらあんぱんセール` | 同一 line・同一 offset の 2 hit。並びは処理順（`さくら` → `さくらあんぱん`） |
 
 ### 5.6 `TestManifestValidation` — manifest 不正の網羅（チェックリスト 6）
 
@@ -215,6 +229,21 @@ manifest 検証は Go コードへの手書き実装であり（`scan/DESIGN.md`
 | M-16 | 単一 JSON 値の後にゴミが続く入力（`{...}{...}`、`{...} x`） | パース不能（単一の JSON 値でない。`scan/DESIGN.md` §5） |
 | M-17 | 任意フィールドの明示的 `null`（`"visible_exceptions": null`、`"surface": null`） | 型不一致（欠落は許容、`null` は不正。`scan/DESIGN.md` §5） |
 
+§7.2 の主要条件に加え、`scan/DESIGN.md` §5 が定める残りのスキーマ制約も同じテーブルで押さえる。
+
+| ID | 壊し方 | 対応する制約 |
+|---|---|---|
+| M-19 | `max_occurrences` が `1.5` | 整数でない（§5 補足） |
+| M-20 / M-21 | `rejected[]` / `visible_exceptions[]` の**内側**に未知フィールド | additionalProperties 禁止（M-08 はトップレベルのみ） |
+| M-22〜M-26 | `target_state` 2001 / `label` 201 / `concept` 501 / `literal_terms[]` 201 / `term` 201 rune | maxLength |
+| M-27 | `target_state` が空文字 | minLength |
+| M-28 | `allowed_surfaces` が空配列 | minItems 1 |
+| M-29 / M-30 | `surface` / `allowed_surfaces` の重複 | uniqueItems |
+| M-31〜M-33 | 必須フィールドの明示的 `null`（`rejected` / `target_state` / `literal_terms`） | 型不一致（§5 補足。M-17 は任意フィールド側） |
+| M-34 / M-35 | 任意フィールドの明示的 `null`（`allowed_surfaces` / `reason`） | 型不一致 |
+| M-36 | `rejected[]` の要素が文字列 | 型不一致 |
+| M-37 | `target_state` 2000 / `label` 200 / `concept` 500 rune（上限ちょうど） | **通る**こと（境界の下側・陰性対照） |
+
 陰性対照として M-00: 標準 manifest（§4）がそのまま検証を通ること。
 M-01・M-16 のような JSON 表現レベルの不正は `brokenManifest`（map 経由）では表現できないため、
 raw string リテラルのフィクスチャで与える。
@@ -226,11 +255,19 @@ raw string リテラルのフィクスチャで与える。
 | ID | 条件 | 期待 exit | 期待 stdout |
 |---|---|---|---|
 | E-01 | 正常稿（C-01 相当） | 0 | `{"pass":true,"hits":[]}` |
-| E-02 | §12.3 の初稿（S-01 相当） | 1 | `pass:false`、hits に term/line/excerpt |
+| E-02 | §12.3 の初稿（S-01 相当） | 1 | `{"pass":false,"hits":[{"term":…,"line":…,"excerpt":…}]}` |
 | E-03 | manifest 不正（M-01 相当） | 3 | 検査結果 JSON を出力しない（stderr は `manifest` カテゴリ） |
 | E-04 | `--draft` のファイルが存在しない | 4 | 検査結果 JSON を出力しない（stderr は `draft` カテゴリ） |
 | E-05 | 引数不足（`--manifest` のみ） | 2 | 検査結果 JSON を出力しない（stderr は `usage` カテゴリ） |
 | E-06 | `--manifest` のファイルが存在しない | 3 | 検査結果 JSON を出力しない（stderr は `manifest` カテゴリ） |
+| E-07 | 未知のフラグ（`--surface body`） | 2 | 検査結果 JSON を出力しない（stderr は `usage` カテゴリ） |
+| E-08 | 余分な位置引数（`extra.txt`） | 2 | 検査結果 JSON を出力しない（stderr は `usage` カテゴリ） |
+| E-09 | excerpt に `<` `&` を含む初稿 | 1 | `SetEscapeHTML(false)` により `\u003c` / `\u0026` へ書き換えない |
+
+E-01・E-02・E-09 の stdout は **生文字列**で期待 JSON と比較する。`json.Unmarshal` で構造体へ読み戻す
+比較では JSON タグを固定できない（`encoding/json` はフィールド名を大文字小文字を区別せずに照合するため、
+タグの無い実装でも通ってしまう）。また非 ASCII はもともとエスケープされないため、日本語がそのまま出ることを
+見ても `SetEscapeHTML(false)` は検証できない。同設定が効くのは `<` `>` `&` のみであり、E-09 で固定する。
 
 exit code の割当て（0 = PASS / 1 = FAIL / 2 = 引数不正 / 3 = manifest 不正 / 4 = draft 読取り不可）と
 stderr の書式 `pink-elephant-scan: <category> error: <詳細>` は `scan/DESIGN.md` §2.2・§2.4 に従う。
