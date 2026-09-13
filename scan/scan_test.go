@@ -12,7 +12,7 @@
 //	func Normalize(s string) string                        // normalize.go
 //	func ParseManifest(b []byte) (*Manifest, error)        // scan.go
 //	func Scan(m *Manifest, draft string) Result            // scan.go
-//	func run(args []string, stdout, stderr io.Writer) int  // main.go（戻り値がそのまま終了コード。0〜4、scan/DESIGN.md §2.2）
+//	func run(args []string, stdout, stderr io.Writer) int  // main.go（戻り値がそのまま終了コード。0〜5、scan/DESIGN.md §2.2）
 //
 //	type Manifest struct{ ... }                            // ParseManifest の戻り値。フィールドは本ファイルからは参照しない
 //	type Result struct{ Pass bool; Hits []Hit }            // JSON タグ: pass / hits（hits は 0 件でも [] で出す）
@@ -29,6 +29,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -48,12 +49,14 @@ const (
 	categoryUsage    = "usage"    // 引数不正（未知フラグ・必須欠落・余分な位置引数）
 	categoryManifest = "manifest" // manifest 不正（読取り不可・パース不能・スキーマ違反・整合性違反）
 	categoryDraft    = "draft"    // draft 読取り不可
+	categoryInternal = "internal" // 内部エラー（判定は済んだが stdout へ書けない・予期しない panic）
 )
 
 var failureExit = map[string]int{
 	categoryUsage:    2,
 	categoryManifest: 3,
 	categoryDraft:    4,
+	categoryInternal: 5,
 }
 
 // checkFailure は失敗系の外形契約を検証する。
@@ -1146,4 +1149,55 @@ func TestRunExitCodes(t *testing.T) {
 			checkFailure(t, tc.category, code, stdout.String(), stderr.String())
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// 5.8 TestInternalErrors — internal カテゴリ（exit 5）
+//
+// 0/1 は「検査の判定」専用で、判定を伝達できなかった失敗は 0/1 を返してはならない
+// （scan/DESIGN.md §2.2）。Go ランタイムは回復しない panic を exit 2 で終了させるため、
+// guard() が無いと usage（引数不正）と区別できなくなる。
+// ---------------------------------------------------------------------------
+
+// failingWriter は書き込みが必ず失敗する io.Writer。stdout へ書けない状況を作る。
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("書き込みに失敗した") }
+
+func TestInternalErrors(t *testing.T) {
+	t.Run("I-01 stdout へ書けない場合は internal（判定できていても 0/1 を返さない）", func(t *testing.T) {
+		manifestPath := writeTemp(t, "manifest.json", standardManifest)
+		draftPath := writeTemp(t, "draft.txt", cleanDraft) // 判定自体は PASS になる入力
+
+		var stderr bytes.Buffer
+		code := run([]string{"--manifest", manifestPath, "--draft", draftPath}, failingWriter{}, &stderr)
+
+		checkFailure(t, categoryInternal, code, "", stderr.String())
+	})
+
+	t.Run("I-02 panic は internal へ写す（usage の exit 2 と衝突させない）", func(t *testing.T) {
+		var stderr bytes.Buffer
+		code := guard(&stderr, func() int { panic("予期しない失敗") })
+
+		checkFailure(t, categoryInternal, code, "", stderr.String())
+		if code == failureExit[categoryUsage] {
+			t.Errorf("panic が usage（exit %d）と衝突している", failureExit[categoryUsage])
+		}
+		// 診断のためスタックトレースを残す（§2.4 の internal のみの例外）。
+		if !strings.Contains(stderr.String(), "runtime/debug.Stack") {
+			t.Errorf("stderr にスタックトレースがない: %s", stderr.String())
+		}
+	})
+
+	t.Run("I-03 panic しなければ guard は戻り値を素通しする", func(t *testing.T) {
+		for _, want := range []int{0, 1, 2, 3, 4} {
+			var stderr bytes.Buffer
+			if got := guard(&stderr, func() int { return want }); got != want {
+				t.Errorf("guard() = %d, want %d", got, want)
+			}
+			if stderr.Len() != 0 {
+				t.Errorf("panic していないのに stderr へ出力した: %s", stderr.String())
+			}
+		}
+	})
 }

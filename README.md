@@ -7,7 +7,7 @@
 
 | 層 | 実体 | 役割 | 状態 |
 |---|---|---|---|
-| L1 | `scan/`（Go CLI `pink-elephant-scan`） | 却下語の字面再侵入（Literal leak）を決定論的に検査する。トークン消費 0 | テスト先行（実装は #7） |
+| L1 | `scan/`（Go CLI `pink-elephant-scan`） | 却下語の字面再侵入（Literal leak）を決定論的に検査する。トークン消費 0 | 実装済み |
 | L2 | Haiku サブエージェント | 意味検査（同義語・上位語・言い換え） | 未着手 |
 | L3 | [`skills/pink-elephant-guard/SKILL.md`](skills/pink-elephant-guard/SKILL.md) | 統括・manifest 作成・再生成 | — |
 
@@ -22,12 +22,7 @@
 
 ## L1 CLI: pink-elephant-scan
 
-> **現在 `scan/` にはテストのみが入っており、実装（`normalize.go` / `scan.go` / `main.go`）は
-> 未着手です（[#7](https://github.com/angiodianxin/pink-elephant-guard/issues/7)）。
-> そのため `go test ./scan/...` は現時点ではビルドエラーで落ちます。これは TDD の red 段階として
-> 意図した状態です。**
-
-以下は `scan/scan_test.go` が固定している、実装が満たすべき外形契約。
+以下は `scan/scan_test.go` が固定している外形契約。
 
 ```text
 usage: pink-elephant-scan --manifest <path> --draft <path>
@@ -40,13 +35,15 @@ usage: pink-elephant-scan --manifest <path> --draft <path>
 | 2 | 引数不正（未知フラグ・必須欠落・余分な位置引数） | `usage` | 呼び出し方を直す |
 | 3 | manifest 不正（読取り不可・パース不能・スキーマ違反・整合性違反） | `manifest` | L3 が manifest を作り直す |
 | 4 | draft 読取り不可 | `draft` | draft のパス・生成を直す |
+| 5 | 内部エラー（判定は済んだが stdout へ書けない・予期しない panic） | `internal` | 本 CLI のバグとして報告する |
 
-失敗系（2/3/4）では stdout へ何も出さない。exit code は stderr カテゴリと 1:1 に対応し、
+失敗系（2/3/4/5）では stdout へ検査結果を出さない。exit code は stderr カテゴリと 1:1 に対応し、
 機械処理（L3 の分岐・hook・CI）は exit code のみに依存して stderr を解析しない。
+呼び出し元は「0/1 以外 = 判定なし」として扱えばよい。
 
 詳細な入出力契約は [`scan/DESIGN.md`](scan/DESIGN.md) を参照。
 
-### ビルド（実装後）
+### ビルド
 
 ```sh
 cd scan
@@ -56,17 +53,17 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../bin/pink-elephant-scan .
 成果物は `bin/`（`.gitignore` 対象）へ置く。バイナリはコミットせず、
 GitHub Releases + SHA-256 チェックサムで配布する。
 
-`scan/go.mod` は現在テストだけを含むため依存が無い状態（`go mod tidy` 済み）。
-`normalize.go` を実装する際に、設計で唯一許可されている外部依存を追加する。
+`scan/go.mod` の外部依存は `golang.org/x/text`（`unicode/norm` の NFKC のみ使用）1 つだけで、
+これ以外を追加してはならない（MUST）。版を上げる場合も **必ず版を指定して取得すること。**
 
 ```sh
 cd scan
-go get golang.org/x/text@v0.21.0   # unicode/norm のみ使用。これ以外の外部依存を追加してはならない（MUST）
+go get golang.org/x/text@v0.21.0
 ```
 
-**版を必ず指定すること。** 版なしの `go get golang.org/x/text` は最新版（v0.42.0 時点）を取りに行き、
+版なしの `go get golang.org/x/text` は最新版（v0.42.0 時点）を取りに行き、
 それが `go >= 1.26` を要求するため `go.mod` の go ディレクティブが 1.22 から自動で引き上げられ、
-上記の「Go 1.22+」と両立しなくなる。v0.21.0 は go 1.22 のままで解決できることを確認済み。
+上記の「Go 1.22+」と両立しなくなる。v0.21.0 は go 1.22 のままで解決できる。
 
 ## 開発手順・回帰確認
 
@@ -109,6 +106,7 @@ go test ./scan/...
 | `TestScanHitDetails` / `TestScanHitOrdering` / `TestScanHitTieBreak` | 行番号・excerpt・hits の整列（行 → オフセット → 処理順） |
 | `TestManifestValidation` | exit 3 となる manifest 不正の網羅（`scan/DESIGN.md` §5 の全制約） |
 | `TestRunExitCodes` | 終了コード（0〜4）、stdout JSON の生文字列（JSON タグと `SetEscapeHTML(false)` を含む）、exit code と stderr カテゴリの 1:1 対応 |
+| `TestInternalErrors` | internal カテゴリ（exit 5）— stdout へ書けない場合に 0/1 を返さないこと、panic を `usage` の exit 2 と衝突させずに写すこと |
 
 実装が参照すべき関数シグネチャと「変更不可の契約」3 点は `scan/scan_test.go` 冒頭の
 パッケージコメントにまとめてある。

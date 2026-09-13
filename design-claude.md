@@ -441,7 +441,7 @@ description: Prevent rejected, removed, corrected, or forbidden concepts from re
 
 ~~~text
 usage: pink-elephant-scan --manifest <path> --draft <path>
-exit:  0 = PASS / 1 = FAIL / 2 = 引数不正 / 3 = manifest不正 / 4 = draft読取り不可（詳細は scan/DESIGN.md §2.2）
+exit:  0 = PASS / 1 = FAIL / 2 = 引数不正 / 3 = manifest不正 / 4 = draft読取り不可 / 5 = 内部エラー（詳細は scan/DESIGN.md §2.2）
 stdout: {"pass": bool, "hits": [{"term": "...", "line": n, "excerpt": "..."}]}
 ~~~
 
@@ -451,7 +451,8 @@ stdout: {"pass": bool, "hits": [{"term": "...", "line": n, "excerpt": "..."}]}
 - `CGO_ENABLED=0` でビルドした単一静的バイナリとして配布する（MUST）。実行環境にランタイムを要求しない。
 - 正規化: `x/text/unicode/norm` によるNFKC、`strings.ToLower`、カタカナ→ひらがなの rune シフト（MUST）。形態素解析は行わない（意味検査はL2の責務）。
 - `visible_exceptions` の `max_occurrences` 以内の出現は hit に数えない。超過分のみ FAIL。
-- manifest スキーマ不正は検査せず exit 3 で即時終了し、L3へ差し戻す。検査を実施できない失敗（exit 2/3/4）で 0/1 を返さない。
+- manifest スキーマ不正は検査せず exit 3 で即時終了し、L3へ差し戻す。検査を実施できない失敗（exit 2/3/4）と、判定を伝達できない失敗（exit 5）で 0/1 を返さない。呼び出し元は「0/1 以外 = 判定なし」として分岐してよい。
+- 予期しない panic は `main()` で `recover()` し exit 5 へ写す（MUST）。Go 既定の panic 終了コード 2 は引数不正と衝突するため。
 - `scan_test.go` に既知の漏れサンプル集（表記揺れ・全角半角・かな違い・例外の回数超過）を持ち、`go test ./...` で回帰確認する（MUST）。
 - クロスコンパイル: `GOOS`/`GOARCH` 指定で windows/amd64、darwin/arm64、linux/amd64 を生成できること（SHOULD）。
 
