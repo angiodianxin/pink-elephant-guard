@@ -3,3 +3,6 @@ bin/
 
 # Runtime intermediate file — must never be committed (may contain user content)
 pink-elephant-manifest.json
+
+# `go build` を -o なしで scan/ 内で実行したときに残る実行ファイル
+scan/scan
