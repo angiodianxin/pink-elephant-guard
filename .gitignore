@@ -6,3 +6,6 @@ pink-elephant-manifest.json
 
 # `go build` を -o なしで scan/ 内で実行したときに残る実行ファイル
 scan/scan
+
+# go.work のワークスペース sum（依存はモジュール側の go.sum が正本）
+go.work.sum

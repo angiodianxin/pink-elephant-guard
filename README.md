@@ -18,7 +18,7 @@
 ## 動作要件
 
 - Claude Code（スキルとしての利用）
-- Go 1.22+ — **L1 CLI のビルド時のみ**必要。配布バイナリを使う場合は不要
+- Go 1.22+ — **L1 CLI のビルド時のみ**必要（将来 Releases に配布バイナリを置いた後は、それを使う場合は不要）
 
 ## L1 CLI: pink-elephant-scan
 
@@ -61,8 +61,12 @@ GitHub Releases + SHA-256 チェックサムで配布する。
 
 ```sh
 cd scan
-go get golang.org/x/text   # unicode/norm のみ使用。これ以外の外部依存を追加してはならない（MUST）
+go get golang.org/x/text@v0.21.0   # unicode/norm のみ使用。これ以外の外部依存を追加してはならない（MUST）
 ```
+
+**版を必ず指定すること。** 版なしの `go get golang.org/x/text` は最新版（v0.42.0 時点）を取りに行き、
+それが `go >= 1.26` を要求するため `go.mod` の go ディレクティブが 1.22 から自動で引き上げられ、
+上記の「Go 1.22+」と両立しなくなる。v0.21.0 は go 1.22 のままで解決できることを確認済み。
 
 ## 開発手順・回帰確認
 
@@ -75,7 +79,7 @@ go vet ./...
 go test ./...
 ```
 
-リポジトリルートからは次で同じ内容を実行できる（CI もこのコマンドを使う）。
+リポジトリルートからは次で同じ内容を実行できる（CI（#1、未実装）にも同じコマンドを使う予定）。
 
 ```sh
 go vet ./scan/...
@@ -100,11 +104,11 @@ go test ./scan/...
 |---|---|
 | `TestNormalize` / `TestNormalizeIdempotent` | 正規化パイプライン（NFKC → 小文字化 → カタカナ→ひらがな） |
 | `TestScanLiteralLeak` | 表記揺れ（ひらがな/カタカナ/半角カナ/ローマ字/全角）の一致 |
-| `TestScanVisibleExceptions` / `TestScanExceptionMasksLiteral` | `visible_exceptions` の回数判定と例外マスク |
+| `TestScanVisibleExceptions` / `TestScanExceptionMasksLiteral` | `visible_exceptions` の回数判定（非重複 greedy）と例外マスク（区間管理・超過分も記録・1 rune の重なりで無視・記載順で早い者勝ち） |
 | `TestScanNegativeControl` | 偽陽性のない陰性対照、`hits` が `[]`（`null` でない）こと |
-| `TestScanHitDetails` / `TestScanHitOrdering` | 行番号・excerpt・hits の整列 |
-| `TestManifestValidation` | exit 3 となる manifest 不正の網羅 |
-| `TestRunExitCodes` | 終了コード（0〜4）と stdout JSON、exit code と stderr カテゴリの 1:1 対応 |
+| `TestScanHitDetails` / `TestScanHitOrdering` / `TestScanHitTieBreak` | 行番号・excerpt・hits の整列（行 → オフセット → 処理順） |
+| `TestManifestValidation` | exit 3 となる manifest 不正の網羅（`scan/DESIGN.md` §5 の全制約） |
+| `TestRunExitCodes` | 終了コード（0〜4）、stdout JSON の生文字列（JSON タグと `SetEscapeHTML(false)` を含む）、exit code と stderr カテゴリの 1:1 対応 |
 
 実装が参照すべき関数シグネチャと「変更不可の契約」3 点は `scan/scan_test.go` 冒頭の
 パッケージコメントにまとめてある。

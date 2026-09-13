@@ -409,7 +409,6 @@ pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 │  └─ manifest.schema.json           # manifest スキーマの機械可読な正本（JSON Schema draft 2020-12、§7.2）
 ├─ bin/                              # ビルド成果物の置き場（.gitignore対象、コミットしない）
 ├─ .gitignore                        # bin/、pink-elephant-manifest.json 等
-├─ LICENSE                           # OSSライセンス（MIT等）を必ず付ける
 ├─ README.md                         # 概要、インストール手順、3層アーキテクチャの説明
 └─ design-claude.md                  # 本仕様書
 ~~~
@@ -511,7 +510,7 @@ tools: Read
 - **リリース前にローカルで品質確認**: `go vet` + `go test ./scan/...` を通してからタグを打つ。
 - **Releasesにコンパイル済みバイナリ**: windows/amd64・darwin/arm64・linux/amd64 をクロスコンパイルし、チェックサム（SHA-256）とともにリリースへ添付する。
 - **バージョンはSemVer**: `plugin.json` の `version`、Gitタグ、CHANGELOGを一致させる。§18のバージョニング規則に従う。
-- **ライセンスと帰属**: LICENSE を置き、READMEに動作要件（Claude Code のバージョン、Go 1.22+ はビルド時のみ必要）を明記する。
+- **動作要件の明記**: READMEに動作要件（Claude Code のバージョン、Go 1.22+ はビルド時のみ必要）を明記する。
 
 ### 13.7 トークン・コストの見積り根拠
 

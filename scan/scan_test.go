@@ -179,10 +179,11 @@ func writeTemp(t *testing.T, name, content string) string {
 	return path
 }
 
-// pass / fail は期待 Result を組み立てる糖衣。hits は必ず空配列（null ではない）。
-func pass() Result { return Result{Pass: true, Hits: []Hit{}} }
+// wantPass / wantFail は期待 Result を組み立てる糖衣。hits は必ず空配列（null ではない）。
+// 実装側（#7）の識別子と衝突しないよう want を冠する。
+func wantPass() Result { return Result{Pass: true, Hits: []Hit{}} }
 
-func fail(hits ...Hit) Result { return Result{Pass: false, Hits: hits} }
+func wantFail(hits ...Hit) Result { return Result{Pass: false, Hits: hits} }
 
 func checkScan(t *testing.T, m *Manifest, draft string, want Result) {
 	t.Helper()
@@ -291,43 +292,43 @@ func TestScanLiteralLeak(t *testing.T) {
 		{
 			name: "S-01 完全一致", manifest: std,
 			draft: "桜あんぱんの販売は終了しました。",
-			want:  fail(Hit{Term: "桜あんぱん", Line: 1, Excerpt: "桜あんぱんの販売は終了しました。"}),
+			want:  wantFail(Hit{Term: "桜あんぱん", Line: 1, Excerpt: "桜あんぱんの販売は終了しました。"}),
 		},
 		{
 			name: "S-02 ひらがな表記", manifest: std,
 			draft: "さくらあんぱんはもうありません",
-			want:  fail(Hit{Term: "さくらあんぱん", Line: 1, Excerpt: "さくらあんぱんはもうありません"}),
+			want:  wantFail(Hit{Term: "さくらあんぱん", Line: 1, Excerpt: "さくらあんぱんはもうありません"}),
 		},
 		{
 			name: "S-03 カタカナ→ひらがな相互一致", manifest: std,
 			draft: "サクラアンパンフェア",
-			want:  fail(Hit{Term: "さくらあんぱん", Line: 1, Excerpt: "サクラアンパンフェア"}),
+			want:  wantFail(Hit{Term: "さくらあんぱん", Line: 1, Excerpt: "サクラアンパンフェア"}),
 		},
 		{
 			name: "S-04 半角カナ（NFKC）", manifest: std,
 			draft: "ｻｸﾗあんぱん復活！",
 			// 桜あんぱん は漢字を含み正規化で変化しないため、一致するのは さくらあんぱん のみ。
-			want: fail(Hit{Term: "さくらあんぱん", Line: 1, Excerpt: "ｻｸﾗあんぱん復活！"}),
+			want: wantFail(Hit{Term: "さくらあんぱん", Line: 1, Excerpt: "ｻｸﾗあんぱん復活！"}),
 		},
 		{
 			name: "S-05 大文字", manifest: std,
 			draft: "SAKURA ANPAN is back",
-			want:  fail(Hit{Term: "sakura anpan", Line: 1, Excerpt: "SAKURA ANPAN is back"}),
+			want:  wantFail(Hit{Term: "sakura anpan", Line: 1, Excerpt: "SAKURA ANPAN is back"}),
 		},
 		{
 			name: "S-06 大文字小文字の混在", manifest: std,
 			draft: "Sakura Anpan",
-			want:  fail(Hit{Term: "sakura anpan", Line: 1, Excerpt: "Sakura Anpan"}),
+			want:  wantFail(Hit{Term: "sakura anpan", Line: 1, Excerpt: "Sakura Anpan"}),
 		},
 		{
 			name: "S-07 全角英字 + 全角空白", manifest: std,
 			draft: "ＳＡＫＵＲＡ　ＡＮＰＡＮ",
-			want:  fail(Hit{Term: "sakura anpan", Line: 1, Excerpt: "ＳＡＫＵＲＡ　ＡＮＰＡＮ"}),
+			want:  wantFail(Hit{Term: "sakura anpan", Line: 1, Excerpt: "ＳＡＫＵＲＡ　ＡＮＰＡＮ"}),
 		},
 		{
 			name: "S-08 複数 rejected・複数行", manifest: std,
 			draft: "今週の朝フェア\n桜あんぱんは終了しました\nクロワッサン3種をご用意\n無料配布はありません",
-			want: fail(
+			want: wantFail(
 				Hit{Term: "桜あんぱん", Line: 2, Excerpt: "桜あんぱんは終了しました"},
 				Hit{Term: "無料配布", Line: 4, Excerpt: "無料配布はありません"},
 			),
@@ -335,17 +336,17 @@ func TestScanLiteralLeak(t *testing.T) {
 		{
 			name: "S-09 部分文字列の合成では一致しない（陰性対照）", manifest: std,
 			draft: "桜餅とあんぱんを別々に販売",
-			want:  pass(),
+			want:  wantPass(),
 		},
 		{
 			name: "S-10 正規化後に同形（同一 literal_terms 内・列挙順で最初）", manifest: sameFormOneRejected,
 			draft: "さくらあんぱんセール",
-			want:  fail(Hit{Term: "サクラアンパン", Line: 1, Excerpt: "さくらあんぱんセール"}),
+			want:  wantFail(Hit{Term: "サクラアンパン", Line: 1, Excerpt: "さくらあんぱんセール"}),
 		},
 		{
 			name: "S-11 正規化後に同形（rejected をまたぐ重複排除）", manifest: sameFormTwoRejected,
 			draft: "さくらあんぱんセール",
-			want:  fail(Hit{Term: "サクラアンパン", Line: 1, Excerpt: "さくらあんぱんセール"}),
+			want:  wantFail(Hit{Term: "サクラアンパン", Line: 1, Excerpt: "さくらあんぱんセール"}),
 		},
 	}
 
@@ -390,37 +391,37 @@ func TestScanVisibleExceptions(t *testing.T) {
 		{
 			name: "V-01 上限内は hit にしない", manifest: std,
 			draft: "カフェインレスのコーヒーもご用意しています",
-			want:  pass(),
+			want:  wantPass(),
 		},
 		{
 			name: "V-02 超過分のみ FAIL", manifest: std,
 			draft: "カフェインレスの豆を入荷しました\n朝の焙煎は7時から\nカフェインレスもご用意",
-			want:  fail(Hit{Term: "カフェインレス", Line: 3, Excerpt: "カフェインレスもご用意"}),
+			want:  wantFail(Hit{Term: "カフェインレス", Line: 3, Excerpt: "カフェインレスもご用意"}),
 		},
 		{
 			name: "V-03 出現回数は正規化一致で数える", manifest: std,
 			draft: "ｶﾌｪｲﾝﾚｽの豆\nカフェインレスもあります",
-			want:  fail(Hit{Term: "カフェインレス", Line: 2, Excerpt: "カフェインレスもあります"}),
+			want:  wantFail(Hit{Term: "カフェインレス", Line: 2, Excerpt: "カフェインレスもあります"}),
 		},
 		{
 			name: "V-04 境界値（ちょうど上限）", manifest: std,
 			draft: "遅めの朝にどうぞ\n遅めの朝でも焼きたて",
-			want:  pass(),
+			want:  wantPass(),
 		},
 		{
 			name: "V-05 境界値+1", manifest: std,
 			draft: "遅めの朝にどうぞ\n遅めの朝でも焼きたて\n遅めの朝のためのセット",
-			want:  fail(Hit{Term: "遅めの朝", Line: 3, Excerpt: "遅めの朝のためのセット"}),
+			want:  wantFail(Hit{Term: "遅めの朝", Line: 3, Excerpt: "遅めの朝のためのセット"}),
 		},
 		{
 			name: "V-06 例外は出現義務ではない", manifest: std,
 			draft: cleanDraft,
-			want:  pass(),
+			want:  wantPass(),
 		},
 		{
 			name: "V-07 例外マスクは区間管理（番兵文字を偽 hit させない）", manifest: sentinelManifest,
 			draft: "カフェインレスのコーヒーもご用意しています",
-			want:  pass(),
+			want:  wantPass(),
 		},
 	}
 
@@ -446,12 +447,67 @@ func TestScanExceptionMasksLiteral(t *testing.T) {
 }`)
 
 	t.Run("免除された例外語の内部は禁止語照合の対象外", func(t *testing.T) {
-		checkScan(t, m, "カフェインレスの豆もあります", pass())
+		checkScan(t, m, "カフェインレスの豆もあります", wantPass())
 	})
 
 	t.Run("例外語の外側に出た禁止語は検出する", func(t *testing.T) {
 		checkScan(t, m, "カフェインレスの豆\n併設カフェは休業中",
-			fail(Hit{Term: "カフェ", Line: 2, Excerpt: "併設カフェは休業中"}))
+			wantFail(Hit{Term: "カフェ", Line: 2, Excerpt: "併設カフェは休業中"}))
+	})
+
+	// 超過分もマスクの対象（DESIGN.md §6.2 手順2-3「免除・超過を問わず記録する」）。
+	// 超過分をマスクしない実装だと、超過 hit に加えて内側の カフェ も hit してしまう。
+	t.Run("超過した例外語の内部も禁止語照合の対象外", func(t *testing.T) {
+		checkScan(t, m, "カフェインレスの豆\n本日もカフェインレス",
+			wantFail(Hit{Term: "カフェインレス", Line: 2, Excerpt: "本日もカフェインレス"}))
+	})
+
+	// 「1 rune でも重なる出現を無視する」こと。完全包含だけを無視する実装だと レスの が hit する。
+	t.Run("マスクと一部だけ重なる出現も無視する", func(t *testing.T) {
+		partial := mustManifest(t, `{
+  "schema_version": 1,
+  "target_state": "朝フェア告知",
+  "rejected": [
+    { "id": "r1", "label": "レスの", "literal_terms": ["レスの"], "concept": "却下された語の断片" }
+  ],
+  "visible_exceptions": [
+    { "term": "カフェインレス", "max_occurrences": 1 }
+  ]
+}`)
+		checkScan(t, partial, "カフェインレスの豆もあります", wantPass())
+	})
+
+	// 例外語同士が重なる場合は manifest 記載順に早い者勝ち（DESIGN.md §6.2）。
+	// 後続の例外語は先行例外のマスクと重なる出現を数えないため、上限 1 を超えない。
+	t.Run("例外語同士のマスクは記載順で早い者勝ち", func(t *testing.T) {
+		overlapping := mustManifest(t, `{
+  "schema_version": 1,
+  "target_state": "朝フェア告知",
+  "rejected": [
+    { "id": "r1", "label": "桜あんぱん", "literal_terms": ["桜あんぱん"], "concept": "却下された春季限定の菓子パン商品" }
+  ],
+  "visible_exceptions": [
+    { "term": "カフェインレス", "max_occurrences": 1 },
+    { "term": "インレ", "max_occurrences": 1 }
+  ]
+}`)
+		checkScan(t, overlapping, "カフェインレスの豆\nインレスではない普通の豆", wantPass())
+	})
+
+	// 出現の数え方は非重複 greedy（見つけた長さ分進める）。
+	// 重複カウントする実装だと あああ を 2 回と数えて上限 1 を超える。
+	t.Run("出現回数は非重複で数える", func(t *testing.T) {
+		repeated := mustManifest(t, `{
+  "schema_version": 1,
+  "target_state": "朝フェア告知",
+  "rejected": [
+    { "id": "r1", "label": "桜あんぱん", "literal_terms": ["桜あんぱん"], "concept": "却下された春季限定の菓子パン商品" }
+  ],
+  "visible_exceptions": [
+    { "term": "ああ", "max_occurrences": 1 }
+  ]
+}`)
+		checkScan(t, repeated, "あああ", wantPass())
 	})
 }
 
@@ -486,8 +542,8 @@ func TestScanNegativeControl(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := Scan(tc.manifest, tc.draft)
-			if !reflect.DeepEqual(got, pass()) {
-				t.Errorf("Scan() = %+v, want %+v", got, pass())
+			if !reflect.DeepEqual(got, wantPass()) {
+				t.Errorf("Scan() = %+v, want %+v", got, wantPass())
 			}
 			// hits は null ではなく空配列としてシリアライズされること。
 			b, err := json.Marshal(got)
@@ -521,17 +577,17 @@ func TestScanHitDetails(t *testing.T) {
 		{
 			name:  "D-01 行番号は 1 始まり",
 			draft: "今週の朝フェア\n桜あんぱんは終了しました\nクロワッサン3種をご用意",
-			want:  fail(Hit{Term: "桜あんぱん", Line: 2, Excerpt: "桜あんぱんは終了しました"}),
+			want:  wantFail(Hit{Term: "桜あんぱん", Line: 2, Excerpt: "桜あんぱんは終了しました"}),
 		},
 		{
 			name:  "D-02 excerpt は正規化前の原文",
 			draft: "今週の朝フェア\nｻｸﾗあんぱん復活！",
-			want:  fail(Hit{Term: "さくらあんぱん", Line: 2, Excerpt: "ｻｸﾗあんぱん復活！"}),
+			want:  wantFail(Hit{Term: "さくらあんぱん", Line: 2, Excerpt: "ｻｸﾗあんぱん復活！"}),
 		},
 		{
 			name:  "D-03 同一行の複数出現は出現ごとに 1 hit",
 			draft: "桜あんぱんと桜あんぱん",
-			want: fail(
+			want: wantFail(
 				Hit{Term: "桜あんぱん", Line: 1, Excerpt: "桜あんぱんと桜あんぱん"},
 				Hit{Term: "桜あんぱん", Line: 1, Excerpt: "桜あんぱんと桜あんぱん"},
 			),
@@ -539,27 +595,27 @@ func TestScanHitDetails(t *testing.T) {
 		{
 			name:  "D-04 行またぎは検出しない（現仕様の限界）",
 			draft: "桜あん\nぱん",
-			want:  pass(),
+			want:  wantPass(),
 		},
 		{
 			name:  "D-05 CRLF 改行",
 			draft: "今週の朝フェア\r\n桜あんぱんは終了しました\r\n",
-			want:  fail(Hit{Term: "桜あんぱん", Line: 2, Excerpt: "桜あんぱんは終了しました"}),
+			want:  wantFail(Hit{Term: "桜あんぱん", Line: 2, Excerpt: "桜あんぱんは終了しました"}),
 		},
 		{
 			name:  "D-06a trim 後ちょうど 120 rune",
 			draft: line120,
-			want:  fail(Hit{Term: "桜あんぱん", Line: 1, Excerpt: line120}),
+			want:  wantFail(Hit{Term: "桜あんぱん", Line: 1, Excerpt: line120}),
 		},
 		{
 			name:  "D-06b trim 後 121 rune",
 			draft: line121,
-			want:  fail(Hit{Term: "桜あんぱん", Line: 1, Excerpt: string([]rune(line121)[:120]) + "…"}),
+			want:  wantFail(Hit{Term: "桜あんぱん", Line: 1, Excerpt: string([]rune(line121)[:120]) + "…"}),
 		},
 		{
 			name:  "D-07 前後の空白を除去",
 			draft: "　  桜あんぱんは終了しました  　",
-			want:  fail(Hit{Term: "桜あんぱん", Line: 1, Excerpt: "桜あんぱんは終了しました"}),
+			want:  wantFail(Hit{Term: "桜あんぱん", Line: 1, Excerpt: "桜あんぱんは終了しました"}),
 		},
 	}
 
@@ -584,12 +640,34 @@ func TestScanHitOrdering(t *testing.T) {
 	// 1 行目には 桜あんぱん（先頭）と 無料配布（後方）が並ぶ。manifest の記載順は 無料配布 が先だが、
 	// hits は行内の出現位置順になる。
 	draft := "桜あんぱんの無料配布\n無料配布は終了"
-	want := fail(
+	want := wantFail(
 		Hit{Term: "桜あんぱん", Line: 1, Excerpt: "桜あんぱんの無料配布"},
 		Hit{Term: "無料配布", Line: 1, Excerpt: "桜あんぱんの無料配布"},
 		Hit{Term: "無料配布", Line: 2, Excerpt: "無料配布は終了"},
 	)
 	checkScan(t, m, draft, want)
+}
+
+// TestScanHitTieBreak は行番号・行内オフセットが同値の hit の並び順を固定する。
+// DESIGN.md §6.4 は第 3 キーを「検出順」とし、検出順は manifest の処理順
+// （rejected の順 → 各 literal_terms の順）で定まる（§6.3）。
+// 正規化後の形が異なる語は同一領域に重なって hit してよいため（§6.3）、
+// さくら と さくらあんぱん は同じオフセット 0 で 2 件の hit になる。
+func TestScanHitTieBreak(t *testing.T) {
+	m := mustManifest(t, `{
+  "schema_version": 1,
+  "target_state": "朝フェア告知",
+  "rejected": [
+    { "id": "r1", "label": "さくら", "literal_terms": ["さくら"], "concept": "却下された春季の訴求" },
+    { "id": "r2", "label": "さくらあんぱん", "literal_terms": ["さくらあんぱん"], "concept": "却下された春季限定の菓子パン商品" }
+  ]
+}`)
+
+	const line = "さくらあんぱんセール"
+	checkScan(t, m, line, wantFail(
+		Hit{Term: "さくら", Line: 1, Excerpt: line},
+		Hit{Term: "さくらあんぱん", Line: 1, Excerpt: line},
+	))
 }
 
 // ---------------------------------------------------------------------------
@@ -760,6 +838,153 @@ func TestManifestValidation(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "M-19 max_occurrences が非整数",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { exceptionAt(t, m, 0)["max_occurrences"] = 1.5 })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-20 rejected[] の内側に未知フィールド",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { rejectedAt(t, m, 0)["note"] = "x" })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-21 visible_exceptions[] の内側に未知フィールド",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { exceptionAt(t, m, 0)["note"] = "x" })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-22 target_state が上限超過（2001 rune）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { m["target_state"] = strings.Repeat("あ", 2001) })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-23 label が上限超過（201 rune）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) {
+					rejectedAt(t, m, 0)["label"] = strings.Repeat("あ", 201)
+				})
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-24 concept が上限超過（501 rune）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) {
+					rejectedAt(t, m, 0)["concept"] = strings.Repeat("あ", 501)
+				})
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-25 literal_terms の要素が上限超過（201 rune）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) {
+					rejectedAt(t, m, 0)["literal_terms"] = []any{strings.Repeat("あ", 201)}
+				})
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-26 visible_exceptions[].term が上限超過（201 rune）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) {
+					exceptionAt(t, m, 0)["term"] = strings.Repeat("あ", 201)
+				})
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-27 target_state が空文字（下限違反）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { m["target_state"] = "" })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-28 allowed_surfaces が空配列",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { exceptionAt(t, m, 0)["allowed_surfaces"] = []any{} })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-29 surface の重複",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { m["surface"] = []any{"body", "body"} })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-30 allowed_surfaces の重複",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) {
+					exceptionAt(t, m, 0)["allowed_surfaces"] = []any{"body", "body"}
+				})
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-31 必須フィールドの明示的 null（rejected）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { m["rejected"] = nil })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-32 必須フィールドの明示的 null（target_state）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { m["target_state"] = nil })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-33 必須フィールドの明示的 null（literal_terms）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { rejectedAt(t, m, 0)["literal_terms"] = nil })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-34 任意フィールドの明示的 null（allowed_surfaces）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { exceptionAt(t, m, 0)["allowed_surfaces"] = nil })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-35 任意フィールドの明示的 null（reason）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { exceptionAt(t, m, 0)["reason"] = nil })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-36 rejected[] の要素がオブジェクトでない",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) { m["rejected"] = []any{"r1"} })
+			},
+			wantErr: true,
+		},
+		{
+			name: "M-37 境界値: 各フィールドが上限ちょうどなら通る（陰性対照）",
+			src: func(t *testing.T) []byte {
+				return brokenManifest(t, func(m map[string]any) {
+					m["target_state"] = strings.Repeat("あ", 2000)
+					rejectedAt(t, m, 0)["label"] = strings.Repeat("あ", 200)
+					rejectedAt(t, m, 0)["concept"] = strings.Repeat("あ", 500)
+				})
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tc := range tests {
@@ -819,17 +1044,31 @@ func TestRunExitCodes(t *testing.T) {
 		if code != 1 {
 			t.Errorf("run() = %d, want 1（stderr: %s）", code, stderr.String())
 		}
-		var got Result
-		if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-			t.Fatalf("stdout が JSON として読めない（%q）: %v", stdout.String(), err)
+		// 生文字列で比較して JSON タグ（term / line / excerpt）まで固定する。
+		// json.Unmarshal はフィールド名を大文字小文字を区別せずに照合するため、
+		// 構造体へ読み戻す比較ではタグの無い実装（Term / Line / Excerpt）も通ってしまう。
+		want := `{"pass":false,"hits":[{"term":"桜あんぱん","line":1,"excerpt":"桜あんぱんの販売は終了しました。"}]}`
+		if got := strings.TrimSpace(stdout.String()); got != want {
+			t.Errorf("stdout = %s\nwant %s", got, want)
 		}
-		want := fail(Hit{Term: "桜あんぱん", Line: 1, Excerpt: "桜あんぱんの販売は終了しました。"})
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("stdout の Result = %+v, want %+v", got, want)
+	})
+
+	// E-09: SetEscapeHTML(false) の契約（DESIGN.md §2.3）。
+	// encoding/json は既定で < > & を \u003c / \u003e / \u0026 へ書き換える。
+	// 非 ASCII はもともとエスケープしないため、日本語が出ることを見ても本契約は検証できない。
+	t.Run("E-09 HTML エスケープを行わない", func(t *testing.T) {
+		manifestPath := writeTemp(t, "manifest.json", standardManifest)
+		draftPath := writeTemp(t, "draft.txt", `<b>桜あんぱん</b> & コーヒー`)
+
+		var stdout, stderr bytes.Buffer
+		code := run([]string{"--manifest", manifestPath, "--draft", draftPath}, &stdout, &stderr)
+
+		if code != 1 {
+			t.Errorf("run() = %d, want 1（stderr: %s）", code, stderr.String())
 		}
-		// 日本語は \uXXXX へエスケープせずそのまま出す。
-		if !strings.Contains(stdout.String(), "桜あんぱん") {
-			t.Errorf("stdout = %q, want 日本語をそのまま含む", stdout.String())
+		want := `{"pass":false,"hits":[{"term":"桜あんぱん","line":1,"excerpt":"<b>桜あんぱん</b> & コーヒー"}]}`
+		if got := strings.TrimSpace(stdout.String()); got != want {
+			t.Errorf("stdout = %s\nwant %s", got, want)
 		}
 	})
 
