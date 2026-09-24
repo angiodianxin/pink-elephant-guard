@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/angiodianxin/pink-elephant-guard/schema/semantic-scan-output.schema.json",
+  "title": "pink-elephant-semantic-scan-output",
+  "description": "L2 サブエージェント pink-elephant-semantic-scan(agents/semantic-scan.md)が返す JSON のスキーマ。本ファイルが機械可読な正本であり、agents/semantic-scan.md の表と README は本ファイルの人間向け解説(差分が生じた場合は本ファイルを優先)。出力はモデルが生成するため L1 のような実装側の保証はなく、呼び出し元(L3)が検証に使う。pass を含む判定オブジェクトか、pass を含まない error オブジェクトのいずれかであり、pass の欠如が「判定なし」を表す(L1 の「exit 0/1 以外 = 判定なし」と同じ体系)。",
+  "oneOf": [{ "$ref": "#/$defs/verdict" }, { "$ref": "#/$defs/error" }],
+  "$defs": {
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "applied_checks", "findings"],
+      "properties": {
+        "pass": {
+          "description": "findings が空なら true、1 件以上なら false。",
+          "type": "boolean"
+        },
+        "applied_checks": {
+          "description": "実施した検査。semantic と rationale は常に含む。attention は初稿に面ラベルがある場合のみ、visual は画像・動画生成プロンプトの場合のみ。未実施の検査を含めてはならない(未確認の媒体を検査済みと報告しない)。",
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["semantic", "rationale", "attention", "visual"] }
+        },
+        "findings": {
+          "description": "漏れ箇所。漏れがなければ空配列(null にしない)。",
+          "type": "array",
+          "items": { "$ref": "#/$defs/finding" }
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "line", "quote", "excerpt", "note"],
+      "properties": {
+        "check": {
+          "description": "該当した検査層。",
+          "enum": ["semantic", "rationale", "attention", "visual"]
+        },
+        "line": {
+          "description": "初稿の行番号(1 起点)。",
+          "type": "integer",
+          "minimum": 1
+        },
+        "quote": {
+          "description": "漏れている箇所の初稿からの逐語引用(最小範囲)。",
+          "type": "string",
+          "minLength": 1
+        },
+        "excerpt": {
+          "description": "該当行の原文。前後の空白を除き、120 文字を超える場合は先頭 120 文字 + …(L1 の hits[].excerpt と同じ規則)。",
+          "type": "string",
+          "minLength": 1
+        },
+        "note": {
+          "description": "漏れと判断した根拠。1 文、120 文字以内。修正案・改善案を書いてはならない(修正は L3 の責務)。",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "rejected_id": {
+          "description": "対象の rejected[].id。check が semantic / rationale の場合は必須。複数にまたがる箇所は主たる 1 件を書く。",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+        },
+        "exception_term": {
+          "description": "例外語の逸脱を報告する場合の visible_exceptions[].term。",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "check": { "enum": ["semantic", "rationale"] } } },
+          "then": { "required": ["rejected_id"] }
+        }
+      ]
+    },
+    "error": {
+      "description": "検査を実施できなかった場合。pass を含めない。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "description": "manifest_invalid は本来 L1 が exit 3 で止めるため到達しない。L1 を経ない呼び出しへの防御として残す。",
+          "enum": ["manifest_unreadable", "manifest_invalid", "draft_unreadable"]
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      }
+    }
+  }
+}

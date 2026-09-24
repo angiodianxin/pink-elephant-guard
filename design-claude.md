@@ -406,7 +406,8 @@ pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 │  ├─ scan.go                        # 照合、visible_exceptions の出現回数判定
 │  └─ scan_test.go                   # 既知の漏れサンプルによる回帰テスト
 ├─ schema/
-│  └─ manifest.schema.json           # manifest スキーマの機械可読な正本（JSON Schema draft 2020-12、§7.2）
+│  ├─ manifest.schema.json           # manifest スキーマの機械可読な正本（JSON Schema draft 2020-12、§7.2）
+│  └─ semantic-scan-output.schema.json  # L2出力スキーマの機械可読な正本（同 draft 2020-12、§13.4）
 ├─ bin/                              # ビルド成果物の置き場（.gitignore対象、コミットしない）
 ├─ .gitignore                        # bin/、pink-elephant-manifest.json 等
 ├─ README.md                         # 概要、インストール手順、3層アーキテクチャの説明
@@ -479,7 +480,28 @@ tools: Read
 - 入力は manifest と初稿ファイルのパスのみ。会話の経緯は知らされない前提で書く。
 - Semantic / Rationale / Attention / Visual の4検査を行い、判定と箇所のJSONだけを返す。
 - 修正文・改善案を書いてはならない（修正はL3の責務）。
-- `visible_exceptions` の回数免除はL1の責務であり、L2は回数では免除しない。L2は `allowed_surfaces` と `reason` を基準に、例外語の配置（許可面の中か）と目的（不使用訴求などの指定意図に沿うか）をAttention leak検査として検証する。`allowed_surfaces` の外に出現した例外語、または指定意図から外れた使われ方はFAILとする。
+- `visible_exceptions` の回数免除はL1の責務であり、L2は回数では免除しない。L2は `allowed_surfaces` と `reason` を基準に、例外語の配置（許可面の中か）と目的（不使用訴求などの指定意図に沿うか）をAttention leak検査として検証する。`allowed_surfaces` の外に出現した例外語、または指定意図から外れた使われ方はFAILとする。ただし例外指定はSemantic leakに優先し、例外語が指す対象への肯定的な言及・言い換え・不使用訴求としての否定形は漏れとしない。
+- Rationale leak は却下要素と結びつく場合にのみFAILとする。`target_state` に含まれる現在状態としての変更告知は漏れではない。
+- 検査対象の面（見出し・本文・CTA等）は、初稿の各面の先頭行に `<surface の値>:` の形のラベルとしてL3が付与する（L2への入力契約）。L2は面を推定しない。面ラベルがない初稿ではAttention leak検査を実施せず、実施しなかったことを出力へ明示する。
+
+L2の出力契約:
+
+機械可読な正本は `schema/semantic-scan-output.schema.json`（JSON Schema draft 2020-12）に置く。L2はJSONを1個だけ返す。
+
+~~~json
+{"pass": false, "applied_checks": ["semantic", "rationale", "attention"], "findings": [{"check": "semantic", "rejected_id": "r2", "line": 2, "quote": "...", "excerpt": "...", "note": "..."}]}
+~~~
+
+| フィールド | 内容 |
+|---|---|
+| `pass` | `findings` が空なら `true`、1件以上なら `false` |
+| `applied_checks` | 実施した検査。`semantic`・`rationale` は常時、`attention` は面ラベルがある場合、`visual` は画像・動画プロンプトの場合のみ。未実施の検査を含めない（§11「未確認の媒体を検査済みと報告しない」の担保） |
+| `findings[]` | `check` / `line` / `quote`（逐語引用） / `excerpt`（L1の `hits[].excerpt` と同じ規則） / `note`（漏れと判断した根拠のみ。修正案を書かない） |
+| `findings[].rejected_id` | `semantic`・`rationale` では必須。`exception_term` は例外語の逸脱を報告する場合に必須 |
+
+検査を実施できない場合（ファイルを読めない、末尾まで読み切れない、manifestがJSONとして壊れている）は `pass` を含めず `{"error": "..."}` を返す。**`pass` の欠如が「判定なし」を表す**（L1の「exit 0/1以外 = 判定なし」と同じ体系）。空の初稿はL1と揃えてPASSとする。
+
+L2はReadが返す範囲だけを見るため、初稿・manifestは必ず末尾まで読み切る（Readの既定上限を超える場合は `offset` で継続する）。読み切れない部分を検査済みとして報告してはならない。
 
 ### 13.5 配布とインストール
 
