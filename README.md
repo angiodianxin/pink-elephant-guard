@@ -97,6 +97,20 @@ go test ./scan/...
 
 テーブルの対応関係は [`docs/issue-8-scan-test-design.md`](docs/issue-8-scan-test-design.md) にある。
 
+| テスト | 固定している契約 |
+|---|---|
+| `TestNormalize` / `TestNormalizeIdempotent` | 正規化パイプライン（NFKC → 小文字化 → カタカナ→ひらがな） |
+| `TestScanLiteralLeak` | 表記揺れ（ひらがな/カタカナ/半角カナ/ローマ字/全角）の一致 |
+| `TestScanVisibleExceptions` / `TestScanExceptionMasksLiteral` | `visible_exceptions` の回数判定（非重複 greedy）と例外マスク（区間管理・超過分も記録・1 rune の重なりで無視・記載順で早い者勝ち） |
+| `TestScanNegativeControl` | 偽陽性のない陰性対照、`hits` が `[]`（`null` でない）こと |
+| `TestScanHitDetails` / `TestScanHitOrdering` / `TestScanHitTieBreak` | 行番号・excerpt・hits の整列（行 → オフセット → 処理順） |
+| `TestManifestValidation` | exit 3 となる manifest 不正の網羅（`scan/DESIGN.md` §5 の全制約） |
+| `TestRunExitCodes` | 終了コード（0〜4）、stdout JSON の生文字列（JSON タグと `SetEscapeHTML(false)` を含む）、exit code と stderr カテゴリの 1:1 対応 |
+| `TestInternalErrors` | internal カテゴリ（exit 5）— stdout へ書けない場合に 0/1 を返さないこと、panic を `usage` の exit 2 と衝突させずに写すこと |
+
+実装が参照すべき関数シグネチャと「変更不可の契約」3 点は `scan/scan_test.go` 冒頭の
+パッケージコメントにまとめてある。
+
 ## CI とリリース
 
 ### CI（push / PR で自動実行）
@@ -149,17 +163,3 @@ pink-elephant-scan_darwin_arm64
 pink-elephant-scan_windows_amd64.exe
 SHA256SUMS.txt        # 同じディレクトリで `sha256sum -c SHA256SUMS.txt` で検証する
 ```
-
-| テスト | 固定している契約 |
-|---|---|
-| `TestNormalize` / `TestNormalizeIdempotent` | 正規化パイプライン（NFKC → 小文字化 → カタカナ→ひらがな） |
-| `TestScanLiteralLeak` | 表記揺れ（ひらがな/カタカナ/半角カナ/ローマ字/全角）の一致 |
-| `TestScanVisibleExceptions` / `TestScanExceptionMasksLiteral` | `visible_exceptions` の回数判定（非重複 greedy）と例外マスク（区間管理・超過分も記録・1 rune の重なりで無視・記載順で早い者勝ち） |
-| `TestScanNegativeControl` | 偽陽性のない陰性対照、`hits` が `[]`（`null` でない）こと |
-| `TestScanHitDetails` / `TestScanHitOrdering` / `TestScanHitTieBreak` | 行番号・excerpt・hits の整列（行 → オフセット → 処理順） |
-| `TestManifestValidation` | exit 3 となる manifest 不正の網羅（`scan/DESIGN.md` §5 の全制約） |
-| `TestRunExitCodes` | 終了コード（0〜4）、stdout JSON の生文字列（JSON タグと `SetEscapeHTML(false)` を含む）、exit code と stderr カテゴリの 1:1 対応 |
-| `TestInternalErrors` | internal カテゴリ（exit 5）— stdout へ書けない場合に 0/1 を返さないこと、panic を `usage` の exit 2 と衝突させずに写すこと |
-
-実装が参照すべき関数シグネチャと「変更不可の契約」3 点は `scan/scan_test.go` 冒頭の
-パッケージコメントにまとめてある。

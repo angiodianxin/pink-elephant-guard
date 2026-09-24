@@ -30,8 +30,12 @@ command -v jq >/dev/null 2>&1 || fail "jq が見つかりません"
 version=$(jq -r '.version // empty' "$PLUGIN_JSON")
 [ -n "$version" ] || fail "$PLUGIN_JSON に version がありません"
 
-# SemVer 2.0.0（プレリリース・ビルドメタデータを含む）
-semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+# SemVer 2.0.0 の公式正規表現（https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string）
+# を POSIX ERE へ移植したもの。プレリリース識別子は空でないドット区切りで、数値のみの識別子は
+# 先頭ゼロ不可（`1.0.0-01` / `1.0.0-alpha..1` は不正）。ビルドメタデータも空でないドット区切り（`1.0.0+build.` は不正）。
+ident='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+build='[0-9A-Za-z-]+'
+semver="^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-$ident(\\.$ident)*)?(\\+$build(\\.$build)*)?\$"
 echo "$version" | grep -Eq "$semver" || fail "$PLUGIN_JSON の version は SemVer ではありません: $version"
 
 # `## [X.Y.Z]` または `## [X.Y.Z] - <日付など>` の見出しを探す。
