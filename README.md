@@ -18,7 +18,7 @@
 ## 動作要件
 
 - Claude Code（スキルとしての利用）
-- Go 1.22+ — **L1 CLI のビルド時のみ**必要（将来 Releases に配布バイナリを置いた後は、それを使う場合は不要）
+- Go 1.22+ — **L1 CLI のビルド時のみ**必要（[Releases](https://github.com/angiodianxin/pink-elephant-guard/releases) の配布バイナリを使う場合は不要）
 
 ## L1 CLI: pink-elephant-scan
 
@@ -76,7 +76,7 @@ go vet ./...
 go test ./...
 ```
 
-リポジトリルートからは次で同じ内容を実行できる（CI（#1、未実装）にも同じコマンドを使う予定）。
+リポジトリルートからは次で同じ内容を実行できる。CI（`.github/workflows/ci.yml`）も同じコマンドを実行する。
 
 ```sh
 go vet ./scan/...
@@ -110,3 +110,56 @@ go test ./scan/...
 
 実装が参照すべき関数シグネチャと「変更不可の契約」3 点は `scan/scan_test.go` 冒頭の
 パッケージコメントにまとめてある。
+
+## CI とリリース
+
+### CI（push / PR で自動実行）
+
+`.github/workflows/ci.yml` が main への push と PR で次を実行する。
+
+| ジョブ | 内容 |
+|---|---|
+| `go (1.22)` / `go (stable)` | `gofmt -l scan/` が空であること、`go vet ./scan/...`、`go test ./scan/...`、3 プラットフォームのクロスコンパイル（`scripts/build-release.sh`） |
+| `version consistency` | `.claude-plugin/plugin.json` の `version` に対応する見出し `## [X.Y.Z]` が `CHANGELOG.md` にあること（`scripts/check-version.sh`） |
+
+Go 1.22 は動作要件の下限（`scan/go.mod`）、stable は最新安定版で、両方で通ることを確認する。
+
+**「失敗するとマージできない」はリポジトリ設定で強制する。** GitHub の Settings → Branches
+（またはルールセット）で main を保護し、上記 3 ジョブを required status check に指定する。
+ワークフローだけではマージは止まらない。
+
+### リリース手順（`v*` タグ push で自動実行）
+
+バイナリはコミットせず、`.github/workflows/release.yml` が GitHub Releases へ添付する。
+`plugin.json` の `version`・Git タグ・`CHANGELOG.md` の見出しは常に一致させる（SemVer、
+`design-claude.md` §13.6・§18）。一致は `scripts/check-version.sh` が検査し、不一致ならリリースは作られない。
+
+1. `design-claude.md` §18 に該当する変更があれば `.claude-plugin/plugin.json` の `version` を上げる
+2. `CHANGELOG.md` の `## [Unreleased]` の内容を `## [X.Y.Z] - YYYY-MM-DD` へ移す（`Unreleased` のままだとタグ検証で失敗する）
+3. ローカルで確認する
+
+   ```sh
+   go vet ./scan/... && go test ./scan/...
+   scripts/check-version.sh vX.Y.Z
+   scripts/build-release.sh          # dist/ に 3 バイナリと SHA256SUMS.txt が出る（.gitignore 対象）
+   ```
+
+4. main にマージ後、タグを打って push する
+
+   ```sh
+   git tag vX.Y.Z && git push origin vX.Y.Z
+   ```
+
+リリースワークフローは タグ検証 → `go vet` / `go test` → `CGO_ENABLED=0` で
+linux/amd64・darwin/arm64・windows/amd64 をクロスコンパイル → `SHA256SUMS.txt` 生成 →
+CHANGELOG の該当節をリリースノートにして Release を作成、の順に進む。
+`v1.2.3-rc.1` のようなプレリリース版はプレリリースとして公開される。
+
+添付物:
+
+```text
+pink-elephant-scan_linux_amd64
+pink-elephant-scan_darwin_arm64
+pink-elephant-scan_windows_amd64.exe
+SHA256SUMS.txt        # 同じディレクトリで `sha256sum -c SHA256SUMS.txt` で検証する
+```

@@ -1,0 +1,65 @@
+# L1（Go）の品質チェック。push / PR で実行し、README「開発手順・回帰確認」節と同じコマンドを使う
+# （design-claude.md §13.6、§18。Issue #1）。
+#
+# 「失敗するとマージできない」はリポジトリ設定（ブランチ保護 / ルールセット）で
+# ジョブ `go` を required status check に指定して実現する。ワークフローだけでは強制されない。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go (${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.22 = 動作要件の下限（scan/go.mod の go ディレクティブ）、stable = 最新安定版
+        go: ["1.22", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: scan/go.sum
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l scan/)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt が必要なファイルがあります:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./scan/...
+
+      - name: go test
+        run: go test ./scan/...
+
+      # リリースワークフローが使うクロスコンパイルを PR 時点で壊していないことを確認する（§13.3 SHOULD）。
+      # 成果物は dist/（.gitignore 対象）に出るだけで、アップロードもコミットもしない。
+      - name: cross-compile check
+        run: scripts/build-release.sh dist
+
+  version:
+    name: version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # plugin.json の version に対応する CHANGELOG 見出しがあるか（タグとの一致はリリース時に検査）
+      - name: plugin.json ↔ CHANGELOG
+        run: scripts/check-version.sh

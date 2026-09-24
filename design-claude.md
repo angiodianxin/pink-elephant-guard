@@ -392,6 +392,13 @@ PASS判定はL1・L2の機械的/隔離検査の結果からのみ導き、L3の
 pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 ├─ .claude-plugin/
 │  └─ plugin.json                    # プラグインメタデータ（name, description, version, author）
+├─ .github/
+│  └─ workflows/
+│     ├─ ci.yml                      # push/PR: gofmt・go vet・go test・クロスコンパイル確認・版整合
+│     └─ release.yml                 # v* タグ: 3プラットフォームのバイナリ＋SHA-256 を Releases へ添付
+├─ scripts/
+│  ├─ check-version.sh               # Gitタグ・plugin.json の version・CHANGELOG の一致を検査（§13.6）
+│  └─ build-release.sh               # CGO_ENABLED=0 クロスコンパイルと SHA256SUMS.txt 生成（§13.3）
 ├─ skills/
 │  └─ pink-elephant-guard/
 │     ├─ SKILL.md                    # L3向け: 工程の統括、manifest作成手順、発動判断
@@ -408,7 +415,8 @@ pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 ├─ schema/
 │  └─ manifest.schema.json           # manifest スキーマの機械可読な正本（JSON Schema draft 2020-12、§7.2）
 ├─ bin/                              # ビルド成果物の置き場（.gitignore対象、コミットしない）
-├─ .gitignore                        # bin/、pink-elephant-manifest.json 等
+├─ .gitignore                        # bin/、dist/、pink-elephant-manifest.json 等
+├─ CHANGELOG.md                      # 変更履歴（Keep a Changelog、版は plugin.json・Gitタグと一致、§13.6）
 ├─ README.md                         # 概要、インストール手順、3層アーキテクチャの説明
 └─ design-claude.md                  # 本仕様書
 ~~~
