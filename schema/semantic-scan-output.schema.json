@@ -15,7 +15,7 @@
           "type": "boolean"
         },
         "applied_checks": {
-          "description": "実施した検査。semantic と rationale は常に含む。attention は初稿に面ラベルがある場合のみ、visual は画像・動画生成プロンプトの場合のみ。未実施の検査を含めてはならない(未確認の媒体を検査済みと報告しない)。",
+          "description": "実施した検査。semantic と rationale は常に含む(下の allOf で強制)。attention は初稿の面が確定する場合のみ、visual は画像・動画生成プロンプトの場合のみ。未実施の検査を含めてはならない(未確認の媒体を検査済みと報告しない)。findings[].check に現れる値は必ずここに含まれる(下の allOf で強制)。",
           "type": "array",
           "minItems": 2,
           "uniqueItems": true,
@@ -26,7 +26,21 @@
           "type": "array",
           "items": { "$ref": "#/$defs/finding" }
         }
-      }
+      },
+      "allOf": [
+        {
+          "description": "semantic は常に実施する。",
+          "properties": { "applied_checks": { "contains": { "const": "semantic" } } }
+        },
+        {
+          "description": "rationale は常に実施する。",
+          "properties": { "applied_checks": { "contains": { "const": "rationale" } } }
+        },
+        { "$comment": "semantic の finding を出すなら semantic を実施済みとして申告していなければならない。", "if": { "required": ["findings"], "properties": { "findings": { "contains": { "required": ["check"], "properties": { "check": { "const": "semantic" } } } } } }, "then": { "required": ["applied_checks"], "properties": { "applied_checks": { "contains": { "const": "semantic" } } } } },
+        { "$comment": "rationale の finding を出すなら rationale を実施済みとして申告していなければならない。", "if": { "required": ["findings"], "properties": { "findings": { "contains": { "required": ["check"], "properties": { "check": { "const": "rationale" } } } } } }, "then": { "required": ["applied_checks"], "properties": { "applied_checks": { "contains": { "const": "rationale" } } } } },
+        { "$comment": "attention の finding を出すなら attention を実施済みとして申告していなければならない(面が確定しない初稿では attention の finding を出せない)。", "if": { "required": ["findings"], "properties": { "findings": { "contains": { "required": ["check"], "properties": { "check": { "const": "attention" } } } } } }, "then": { "required": ["applied_checks"], "properties": { "applied_checks": { "contains": { "const": "attention" } } } } },
+        { "$comment": "visual の finding を出すなら visual を実施済みとして申告していなければならない(画像・動画プロンプト以外では visual の finding を出せない)。", "if": { "required": ["findings"], "properties": { "findings": { "contains": { "required": ["check"], "properties": { "check": { "const": "visual" } } } } } }, "then": { "required": ["applied_checks"], "properties": { "applied_checks": { "contains": { "const": "visual" } } } } }
+      ]
     },
     "finding": {
       "type": "object",
@@ -34,7 +48,7 @@
       "required": ["check", "line", "quote", "excerpt", "note"],
       "properties": {
         "check": {
-          "description": "該当した検査層。",
+          "description": "該当した検査層。applied_checks に含まれていなければならない。",
           "enum": ["semantic", "rationale", "attention", "visual"]
         },
         "line": {
@@ -72,6 +86,7 @@
       },
       "allOf": [
         {
+          "$comment": "semantic / rationale は何に対する漏れかを紐付ける。",
           "if": { "properties": { "check": { "enum": ["semantic", "rationale"] } } },
           "then": { "required": ["rejected_id"] }
         }
