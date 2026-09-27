@@ -234,6 +234,8 @@ Clean Briefだけを制作上の正本として初稿を作り、スクラッチ
 
 修正前の文章から数語を削る方式ではなく、現在状態を主語にして最初から組み直す。
 
+書き出す際、**各面の先頭行に `<surface の値>:` の形の面ラベルを付ける**（工程4bのL2への入力契約。§13.4）。L2は面を推定しないため、ラベルが無い初稿ではAttention leak検査が実施されない。
+
 ### 工程4a: Literal Scan（L1・決定論的）
 
 CLI `pink-elephant-scan`（Go製バイナリ）を初稿ファイルとmanifestに対して実行する。
@@ -246,18 +248,18 @@ CLI `pink-elephant-scan`（Go製バイナリ）を初稿ファイルとmanifest�
 ### 工程4b: Semantic Scan（L2・Haikuサブエージェント）
 
 L1をPASSした初稿を、隔離されたサブエージェント（`model: haiku`）へ渡して検査する。
-入力は **manifest + 初稿のみ**。会話履歴は渡さない。
+入力は **manifest + 面ラベル付きの初稿のみ**（ラベルの付与は工程3）。会話履歴は渡さない。
 
 検査4層:
 
 | 検査 | 確認内容 |
 |---|---|
 | Semantic leak | `rejected[].concept` の同義語、上位語、言い換え、否定形、婉曲表現 |
-| Rationale leak | 削除理由、「代わりに」「以前は」などの変更説明 |
-| Attention leak | 不在や比較が見出し、冒頭、CTA、結論の主題になっていないか |
+| Rationale leak | 却下要素と結びつく削除理由、「代わりに」「以前は」などの変更説明 |
+| Attention leak（面が確定する初稿のみ） | 却下要素の不在や比較が見出し、冒頭、CTA、結論の主題になっていないか。例外語の配置と意図 |
 | Visual leak（画像・動画プロンプトのみ） | 削除物の輪郭、破片、影、容器、持ち手、プレースホルダー |
 
-出力: 判定（PASS/FAIL）と、FAIL時は漏れ箇所と該当検査層のリスト。修正文は返さない。
+出力: 判定（PASS/FAIL）と、FAIL時は漏れ箇所と該当検査層のリスト。修正文は返さない。実施した検査も申告させ、未実施の検査を検査済みと報告させない。**出力契約の詳細と機械可読な正本は §13.4（`schema/semantic-scan-output.schema.json`）。**
 
 ### 工程5: 再生成（L3）
 
@@ -413,7 +415,8 @@ pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 │  ├─ scan.go                        # 照合、visible_exceptions の出現回数判定
 │  └─ scan_test.go                   # 既知の漏れサンプルによる回帰テスト
 ├─ schema/
-│  └─ manifest.schema.json           # manifest スキーマの機械可読な正本（JSON Schema draft 2020-12、§7.2）
+│  ├─ manifest.schema.json           # manifest スキーマの機械可読な正本（JSON Schema draft 2020-12、§7.2）
+│  └─ semantic-scan-output.schema.json  # L2出力スキーマの機械可読な正本（同 draft 2020-12、§13.4）
 ├─ bin/                              # ビルド成果物の置き場（.gitignore対象、コミットしない）
 ├─ .gitignore                        # bin/、dist/、pink-elephant-manifest.json 等
 ├─ CHANGELOG.md                      # 変更履歴（Keep a Changelog、版は plugin.json・Gitタグと一致、§13.6）
@@ -487,7 +490,28 @@ tools: Read
 - 入力は manifest と初稿ファイルのパスのみ。会話の経緯は知らされない前提で書く。
 - Semantic / Rationale / Attention / Visual の4検査を行い、判定と箇所のJSONだけを返す。
 - 修正文・改善案を書いてはならない（修正はL3の責務）。
-- `visible_exceptions` の回数免除はL1の責務であり、L2は回数では免除しない。L2は `allowed_surfaces` と `reason` を基準に、例外語の配置（許可面の中か）と目的（不使用訴求などの指定意図に沿うか）をAttention leak検査として検証する。`allowed_surfaces` の外に出現した例外語、または指定意図から外れた使われ方はFAILとする。
+- `visible_exceptions` の回数免除はL1の責務であり、L2は回数では免除しない。L2は `allowed_surfaces` と `reason` を基準に、例外語の配置（許可面の中か）と目的（不使用訴求などの指定意図に沿うか）をAttention leak検査として検証する。`allowed_surfaces` の外に出現した例外語、または指定意図から外れた使われ方はFAILとする。ただし例外指定はSemantic leakに優先し、例外語が指す対象への肯定的な言及・言い換え・不使用訴求としての否定形は漏れとしない。
+- Rationale leak は却下要素と結びつく場合にのみFAILとする。`target_state` に含まれる現在状態としての変更告知は漏れではない。
+- 検査対象の面（見出し・本文・CTA等）は、初稿の各面の先頭行に `<surface の値>:` の形のラベルとしてL3が付与する（L2への入力契約）。L2は面を推定しない。面ラベルがない初稿ではAttention leak検査を実施せず、実施しなかったことを出力へ明示する。
+
+L2の出力契約:
+
+機械可読な正本は `schema/semantic-scan-output.schema.json`（JSON Schema draft 2020-12）に置く。L2はJSONを1個だけ返す。
+
+~~~json
+{"pass": false, "applied_checks": ["semantic", "rationale", "attention"], "findings": [{"check": "semantic", "rejected_id": "r2", "line": 2, "quote": "...", "excerpt": "...", "note": "..."}]}
+~~~
+
+| フィールド | 内容 |
+|---|---|
+| `pass` | `findings` が空なら `true`、1件以上なら `false` |
+| `applied_checks` | 実施した検査。`semantic`・`rationale` は常時、`attention` は面ラベルがある場合、`visual` は画像・動画プロンプトの場合のみ。未実施の検査を含めない（§11「未確認の媒体を検査済みと報告しない」の担保） |
+| `findings[]` | `check` / `line` / `quote`（逐語引用） / `excerpt`（L1の `hits[].excerpt` と同じ規則） / `note`（漏れと判断した根拠のみ。修正案を書かない） |
+| `findings[].rejected_id` | `semantic`・`rationale` では必須。`exception_term` は例外語の逸脱を報告する場合に必須 |
+
+検査を実施できない場合（ファイルを読めない、末尾まで読み切れない、manifestがJSONとして壊れている）は `pass` を含めず `{"error": "..."}` を返す。**`pass` の欠如が「判定なし」を表す**（L1の「exit 0/1以外 = 判定なし」と同じ体系）。空の初稿はL1と揃えてPASSとする。
+
+L2はReadが返す範囲だけを見るため、初稿・manifestは必ず末尾まで読み切る（Readの既定上限を超える場合は `offset` で継続する）。読み切れない部分を検査済みとして報告してはならない。
 
 ### 13.5 配布とインストール
 

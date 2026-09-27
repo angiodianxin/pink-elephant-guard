@@ -8,7 +8,7 @@
 | 層 | 実体 | 役割 | 状態 |
 |---|---|---|---|
 | L1 | `scan/`（Go CLI `pink-elephant-scan`） | 却下語の字面再侵入（Literal leak）を決定論的に検査する。トークン消費 0 | 実装済み |
-| L2 | Haiku サブエージェント | 意味検査（同義語・上位語・言い換え） | 未着手 |
+| L2 | [`agents/semantic-scan.md`](agents/semantic-scan.md)（Haiku サブエージェント） | Semantic / Rationale / Attention / Visual leak を、会話履歴を見ない隔離コンテキストで検査する | 定義済み（実挙動は未検証・#12。SKILL.md からの呼び出しは未接続・#10） |
 | L3 | [`skills/pink-elephant-guard/SKILL.md`](skills/pink-elephant-guard/SKILL.md) | 統括・manifest 作成・再生成 | — |
 
 `pink-elephant-manifest.json` は L1/L2/L3 間の中間生成物で、スキーマの正本は
@@ -64,6 +64,74 @@ go get golang.org/x/text@v0.21.0
 版なしの `go get golang.org/x/text` は最新版（v0.42.0 時点）を取りに行き、
 それが `go >= 1.26` を要求するため `go.mod` の go ディレクティブが 1.22 から自動で引き上げられ、
 上記の「Go 1.22+」と両立しなくなる。v0.21.0 は go 1.22 のままで解決できる。
+
+## L2 サブエージェント: pink-elephant-semantic-scan
+
+L1 を PASS した初稿を、[`agents/semantic-scan.md`](agents/semantic-scan.md)（`model: haiku`、`tools: Read`）で
+意味レベルまで検査する。**入力は manifest と初稿のパスだけで、会話履歴・却下理由の経緯は渡さない（MUST）。**
+検査者自身が旧案に汚染されないための隔離であり、この層の価値そのものである。
+
+prompt ファイルが存在するだけで、実挙動はまだ検証していない（受け入れテストは #12）。
+SKILL.md（L3）からの呼び出しも未接続（#10）。L1 のように `go test` で挙動が固定されているわけではない。
+
+| 検査 | 確認内容 | 実施条件 |
+|---|---|---|
+| Semantic leak | `rejected[].concept` の同義語・上位語・言い換え・否定形・婉曲表現 | 常時 |
+| Rationale leak | 却下要素と結びつく削除理由・変更説明（「代わりに」「以前は」等） | 常時 |
+| Attention leak | 却下要素の不在・比較が見出し・冒頭・CTA・結論を占めていないか。例外語の配置と意図 | 初稿に面ラベルがある場合 |
+| Visual leak | 削除物の輪郭・破片・影・容器・持ち手・プレースホルダー | 画像・動画プロンプトの場合 |
+
+実施した検査は出力の `applied_checks` に列挙する。未実施の検査を含めないことで、
+「未確認の媒体を検査済みと報告しない」（検収基準）を出力形式で担保している。
+`findings[].check` の値が `applied_checks` に含まれることはスキーマ側で強制している。
+
+### 入力契約: 面ラベル
+
+Attention leak は面ごとの判定を含むため、初稿の各面の先頭行に `<surface の値>:` の形のラベルを付けて渡す
+（付与は L3 の責務）。ラベルとして扱われるのは manifest の `surface` に宣言された値と一致するものだけで、
+`surface` が無い場合や一致しない場合は面が確定しない。面が確定しない初稿では L2 は面を推定せず、
+例外語の配置・意図の検証を含む **Attention leak 全体**を実施しない（`applied_checks` から外れる）。
+
+```text
+headline: 今月はドリップバッグの詰め合わせ
+body: 常温で持ち運べる焙煎違いの3種をそろえました。
+cta: 店頭でお受け取りください
+```
+
+### 出力
+
+JSON を 1 個だけ返す。構造の正本は
+[`schema/semantic-scan-output.schema.json`](schema/semantic-scan-output.schema.json)。
+
+```json
+{
+  "pass": false,
+  "applied_checks": ["semantic", "rationale", "attention"],
+  "findings": [
+    {
+      "check": "semantic",
+      "rejected_id": "r2",
+      "line": 2,
+      "quote": "夏の冷たい一杯",
+      "excerpt": "body: 夏の冷たい一杯のご用意は一区切りとなり、今月は常温で持ち運べるドリップバッグをお届けします。",
+      "note": "r2 の concept（夏季限定の冷たい飲み物）の言い換え"
+    }
+  ]
+}
+```
+
+- `note` は「なぜ漏れか」だけを書く。**修正文・改善案は返さない**（再生成は L3 の責務）。
+- `excerpt` は L1 の `hits[].excerpt` と同じ規則（前後空白を除き 120 文字超は切り詰め）。
+- `semantic` / `rationale` の finding は対象の `rejected_id` を必ず持つ。却下要素と紐付かない
+  変更告知（現在状態としての「変更となりました」等）は漏れとしない。
+- 判定できない場合（ファイルを読めない・末尾まで読み切れない・parse できない）は `pass` を含めず
+  `{"error": "..."}` を返す。L1 の「0/1 以外 = 判定なし」と同じく、`pass` の欠如が「判定なし」を表す。
+  空の初稿は L1 と揃えて PASS とする（判定不能にしない）。
+- `visible_exceptions` の**回数**判定は L1 の責務で、L2 は回数では免除しない。
+  L2 は `allowed_surfaces`（配置）と `reason`（意図）の逸脱だけを、列挙された逸脱パターンに限って報告する。
+
+対応する仕様箇所: design-claude.md §7.2（隔離・manifest）、工程4b（4検査）、§12.5（L2/L3 の境界）、
+§13.4（サブエージェント定義）、§17（`tools: Read`）。
 
 ## 開発手順・回帰確認
 
