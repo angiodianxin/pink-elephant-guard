@@ -77,7 +77,9 @@ description: Prevent rejected, removed, corrected, or forbidden concepts from re
 | `visible_exceptions[]` | `term`、`max_occurrences`、任意で `allowed_surfaces`（`surface` の値）と `reason`。ここに置いた語を `literal_terms` にも入れてはならない |
 | `surface` | 受け手が見る面のラベル。例: `["headline", "body", "cta"]`。**必ず宣言する**: L2 の Attention 検査はこれに依存する。生成プロンプトでは画像・動画系のラベル（`image_prompt`、`video_prompt`、`storyboard`）を使う |
 
-manifest に会話全文、顧客情報、秘密、ローカルのフルパスを入れない。
+manifest に入れるのは、却下要素の語と概念、現在状態の要約だけである。会話中に出た却下語の表記はすべて
+`literal_terms` へ写す（これは転記ではなく、L1 に必要な入力である）。一方で会話全文の転記、
+却下要素と無関係な顧客情報・秘密、ローカル環境を示すフルパスは入れない。
 
 不在自体を訴求するかどうかで完成物が大きく変わり、会話から判断できない場合だけ質問する。
 それ以外は現在状態を優先して進める。
@@ -99,6 +101,7 @@ Clean Brief だけを制作上の正本とする。修正前の文章から数�
 初稿はスクラッチパッドのファイル（例: `pink-elephant-draft.txt`）へ書き出す。
 **各面の先頭行に `<surface の値>:` の形のラベルを付け、値は `surface` に宣言したものと完全に一致させる。**
 L2 は面を推定しない。ラベルが無い、または一致しない初稿では Attention 検査が実施されない。
+このラベルは L1/L2 に面を伝えるための内部マーカーであり、完成物の一部ではない（出力時に取り除く。「出力」章参照）。
 
 ```text
 headline: 今月はドリップバッグの詰め合わせ
@@ -139,7 +142,19 @@ draft: <scratchpad>/pink-elephant-draft.txt
 判定の JSON だけを返してください。
 ```
 
-返ってきた JSON（スキーマ: `schema/semantic-scan-output.schema.json`）を読む:
+返ってきた JSON（スキーマ: `schema/semantic-scan-output.schema.json`）を、**分岐する前に検証する。**
+L2 の出力はモデル生成であり、L1 のような実装側の保証はない。検証は L3 の責務である。
+次のいずれかに当てはまれば判定なしとして扱い、4b を 1 回だけ再実行する。再実行でも満たさなければ
+未検査として扱い、その旨を報告する（`pass: true` と書いてあっても通さない）:
+
+- JSON オブジェクトが 1 つだけでない、または JSON として parse できない
+- `pass` があるのに `applied_checks` か `findings` が無い、または型が違う（`pass` は真偽値、他 2 つは配列）
+- `pass: true` なのに `findings` が空でない、または `pass: false` なのに `findings` が空
+- `applied_checks` に `"semantic"` と `"rationale"` が無い
+- `findings[].check` の値が `applied_checks` に含まれていない
+- `semantic` / `rationale` の finding に `rejected_id` が無い、またはその id が manifest に無い
+
+検証を通った JSON で分岐する:
 
 - `pass: true`: 機械検査は完了。最終判断へ。
 - `pass: false`: `findings[]`（`check`、`line`、`quote`、`note`、`rejected_id` または `exception_term`）を持って工程 5 へ。
@@ -182,7 +197,9 @@ L1 と L2 の両方が PASS したあとにのみ行う。完成物が現在案�
 ## 媒体別要件
 
 媒体ごとの詳細は同じディレクトリの `references/media-requirements.md` にある（文章、画像生成プロンプト、動画生成プロンプト、UI とラベル）。
-工程 2 で媒体を確定した時点で、該当する節だけを読む。既定では読み込まない。
+**工程 2 で媒体を確定した時点で、その媒体の節を必ず読む。文章だけの完成物でも「文章」節を読む**
+（脚注・キャプション・alt テキストなど、そこにしか書かれていない検査箇所がある）。
+読むのは該当する節だけで、他の媒体の節は読まない。
 
 全媒体に共通する要点:
 
@@ -194,6 +211,9 @@ L1 と L2 の両方が PASS したあとにのみ行う。完成物が現在案�
 ## 出力
 
 - `TARGET_STATE` だけで自立した完成物を返す。manifest、brief、findings を完成物に含めない。
+- 工程 3 で付けた面ラベル（`headline:` など）は内部マーカーなので、完成物からは取り除く。
+  ラベル以外の本文は、検査を通った初稿と一字も変えない（変えると未検査の稿になる）。
+  ユーザーが面の名前付きでの納品を求めた場合、またはユーザー指定の書式にその名前が含まれる場合だけ残す。
 - ユーザーが「完成稿だけ」と指定した場合、検査報告や工程の説明を添えない。
 - 検査報告を求められた場合は、L1 の出力と L2 の JSON を引用する。実施した検査（`applied_checks`）と、
   実画像・実動画・実音声など検査していないものを明記する。自分の読みを検証として書かない。
