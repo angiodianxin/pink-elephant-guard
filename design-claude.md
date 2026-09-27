@@ -404,8 +404,11 @@ pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 ├─ skills/
 │  └─ pink-elephant-guard/
 │     ├─ SKILL.md                    # L3向け: 工程の統括、manifest作成手順、発動判断
-│     └─ references/
-│        └─ media-requirements.md    # 媒体別要件の詳細（必要時のみ読む）
+│     └─ references/                 # 媒体別要件の詳細（媒体を確定した時点で該当ファイルだけ読む）
+│        ├─ text.md                   # 文章
+│        ├─ image-prompt.md           # 画像生成プロンプト
+│        ├─ video-prompt.md           # 動画生成プロンプト
+│        └─ ui.md                     # UI とラベル（L1 常駐の選択肢を含む）
 ├─ agents/
 │  └─ semantic-scan.md               # L2: Haikuサブエージェント定義
 ├─ scan/                             # L1: Goソース（同梱、正本）
@@ -538,7 +541,7 @@ L2はReadが返す範囲だけを見るため、初稿・manifestは必ず末尾
 ### 13.6 公開時のベストプラクティス
 
 - **description が製品の顔**: 暗黙発動の精度と、他利用者の環境での誤発動率を左右する。変更はバージョンを上げ、CHANGELOGへ記録する。
-- **SKILL.md は英語を基本にし、発動フレーズ例は日本語併記**: 利用者のモデル・ロケールを問わず発動判定が安定する。
+- **SKILL.md の本文は日本語、frontmatter の `description` は英語**: 暗黙発動の判定に使われるのは `description` だけで、本文は発動後に読まれる。本文の言語は発動の安定性に影響しないため、他の文書（`agents/semantic-scan.md`、本仕様書）と揃えて日本語で書く。発動フレーズ例は `description` と本文の双方に日本語で入れる。
 - **秘密・個人情報をコミットしない**: manifest（`pink-elephant-manifest.json`）は利用時の中間生成物であり `.gitignore` に入れる。仕様書・READMEの例は架空の題材（パン屋の例）だけを使う。
 - **リリース前にローカルで品質確認**: `go vet` + `go test ./scan/...` を通してからタグを打つ。
 - **Releasesにコンパイル済みバイナリ**: windows/amd64・darwin/arm64・linux/amd64 をクロスコンパイルし、チェックサム（SHA-256）とともにリリースへ添付する。

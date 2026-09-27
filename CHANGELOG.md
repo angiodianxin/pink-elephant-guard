@@ -13,7 +13,8 @@
 
 ### Added
 
-- L3 スキル `skills/pink-elephant-guard/SKILL.md` と仕様書 `design-claude.md`
+- L3 スキル `skills/pink-elephant-guard/SKILL.md`（3 層統括版: 工程 1→2→3→4a→4b→5、PASS は L1/L2 の結果からのみ導く。#10）と仕様書 `design-claude.md`
+- 媒体別要件の詳細 `skills/pink-elephant-guard/references/`（`text.md`・`image-prompt.md`・`video-prompt.md`・`ui.md`）。SKILL.md 本体は要点と参照だけを残し、媒体を確定した時点で該当ファイルだけを読む（#11）
 - manifest スキーマの正本 `schema/manifest.schema.json`
 - L1 CLI `pink-elephant-scan`（`scan/`）: 却下語の字面再侵入（Literal leak）を決定論的に検査する（#7）
   - 正規化パイプライン（NFKC → 小文字化 → カタカナ→ひらがな）
