@@ -65,14 +65,12 @@ cp agents/semantic-scan.md ~/.claude/agents/pink-elephant-semantic-scan.md
 | macOS (Apple Silicon) | `pink-elephant-scan_darwin_arm64` |
 | Windows (x86_64) | `pink-elephant-scan_windows_amd64.exe` |
 
-取得には [GitHub CLI](https://cli.github.com/)（`gh`、`gh auth login` 済み）を使う。
-リポジトリは現在 private のため、未認証の `curl` やブラウザの匿名アクセスでは取得できない（404 になる）。
-
 Linux / macOS の例（`~/.local/bin` が `PATH` に入っている前提）:
 
 ```sh
 f=pink-elephant-scan_linux_amd64   # macOS は pink-elephant-scan_darwin_arm64
-gh release download v0.1.0 --repo angiodianxin/pink-elephant-guard -p "$f" -p SHA256SUMS.txt
+base=https://github.com/angiodianxin/pink-elephant-guard/releases/download/v0.1.0
+curl -fL --remote-name-all "$base/$f" "$base/SHA256SUMS.txt"
 sha256sum -c --ignore-missing SHA256SUMS.txt   # macOS は shasum -a 256 -c --ignore-missing SHA256SUMS.txt
 mkdir -p ~/.local/bin
 install -m 755 "$f" ~/.local/bin/pink-elephant-scan
@@ -85,14 +83,23 @@ Windows（PowerShell）の例:
 
 ```powershell
 $f = 'pink-elephant-scan_windows_amd64.exe'
-gh release download v0.1.0 --repo angiodianxin/pink-elephant-guard -p $f -p SHA256SUMS.txt
-(Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
-Select-String windows_amd64 SHA256SUMS.txt   # 上の値と一致することを確認する
+$base = 'https://github.com/angiodianxin/pink-elephant-guard/releases/download/v0.1.0'
+Invoke-WebRequest "$base/$f" -OutFile $f -UseBasicParsing
+Invoke-WebRequest "$base/SHA256SUMS.txt" -OutFile SHA256SUMS.txt -UseBasicParsing
+$expected = ((Select-String -Path SHA256SUMS.txt -SimpleMatch $f).Line -split '\s+')[0]
+if ((Get-FileHash $f -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'checksum mismatch' }
 New-Item -ItemType Directory -Force "$HOME\bin" | Out-Null
 Move-Item $f "$HOME\bin\pink-elephant-scan.exe"
 ```
 
-`$HOME\bin` が `PATH` に無ければ、Windows の「環境変数」設定からユーザーの `Path` に追加する。
+チェックサムが一致しないと `checksum mismatch` で止まる。`$HOME\bin` が `PATH` に無ければ、
+Windows の「環境変数」設定からユーザーの `Path` に追加する。
+
+[GitHub CLI](https://cli.github.com/) があれば、`curl` / `Invoke-WebRequest` の代わりに次でも取得できる。
+
+```sh
+gh release download v0.1.0 --repo angiodianxin/pink-elephant-guard -p "$f" -p SHA256SUMS.txt
+```
 
 配布バイナリの無い環境（Intel Mac、arm64 Linux 等）や、ソースから入れたい場合は Go 1.22+ でビルドする
 （[ビルド](#ビルド)参照）。`bin/pink-elephant-scan` ができるので、同様に `PATH` の通る場所へ置く。
