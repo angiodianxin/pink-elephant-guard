@@ -5,125 +5,197 @@ description: Prevent rejected, removed, corrected, or forbidden concepts from re
 
 # Pink Elephant Guard / ピンクの象ガード
 
-却下・削除・訂正・禁止された要素を変更履歴として隔離し、修正後の現在状態だけから完成物を組み直す。
-目標は禁止語を伏せることではない。削除跡や言い訳を残さず、現在の目的だけで自然に成立する完成物を返すことである。
+Isolate rejected, removed, corrected, or forbidden elements as change history, and rebuild the
+deliverable from the current state only. The goal is not to mask forbidden words. It is to return a
+deliverable that stands naturally on the current purpose, with no trace of deletion and no excuses.
 
-## 適用範囲
+This file is the orchestration procedure for L3 (you, the main model). Inspection is delegated:
 
-鑑賞者・利用者向けの最終出力の新規作成または修正に適用する:
-広告コピー、SNS投稿、記事、見出し、CTA、台詞、ナレーション、字幕、画像・動画生成プロンプト、画像内文字、UI文言、ラベル、配布用の要約や資料。
+| Layer | Runs as | Checks |
+|---|---|---|
+| L1 | `pink-elephant-scan` CLI (deterministic Go binary, zero tokens) | Literal leak: rejected terms re-entering the draft, exception count limits |
+| L2 | `pink-elephant-semantic-scan` subagent (Haiku, isolated context) | Semantic / Rationale / Attention / Visual leak |
+| L3 | This procedure | Classify, write the manifest and the Clean Brief, generate, regenerate, final judgment |
 
-## 適用しない範囲（非発動）
+**PASS is derived only from L1 and L2 results. Never substitute your own inspection for them
+and never report a draft as checked when they did not run.**
 
-次の場合は除外対象を隠さず、このスキルを適用しない:
+## When to use
 
-- A案とB案の比較、変更履歴、議事録、監査記録
-- 法令、契約、広告開示、安全、医療、アレルゲン、リスク説明、アクセシビリティ表示
-- 障害分析、原因調査、再発防止
-- ユーザーが明示的に必要とした不使用訴求（その語は例外として保持する）
-- 訂正履歴が存在しない通常の新規制作
+All three must hold:
 
-このスキルは、事実、失敗、危険、義務的な開示を見栄えのために隠す仕組みではない。
+1. The conversation contains an element that was rejected, removed, corrected, or forbidden.
+2. The user is creating or revising viewer- or user-facing output (copy, headline, CTA, dialogue,
+   narration, subtitles, image/video prompts, in-image text, UI copy, labels, distributable summaries).
+3. The deliverable does not need to explain that history.
 
-## 優先順位
+Typical trigger phrases (judge by meaning of the whole request, not by string match):
+「これは消して」「その案はなし」「入れないで」「そこじゃない」「企画から外れました」「前の設定は使いません」.
 
-判断が競合するときは次の順で優先する:
+## When not to use
 
-1. 法令、安全、契約、アクセシビリティ上の必要表示
-2. ユーザーが完成面へ明示するよう指定した内容
-3. ユーザーが最後に確定した現在状態
-4. それ以前の案や変更履歴
+Do not hide the excluded element, and do not apply this skill, when the request is:
 
-## 処理工程
+- A comparison of options, a change log, minutes, or an audit record
+- Legal, contractual, advertising disclosure, safety, medical, allergen, risk, or accessibility text
+- Incident analysis, root-cause investigation, or recurrence prevention
+- A non-use claim the user explicitly wants (keep that term as a visible exception)
+- Ordinary new creation with no correction history
 
-### 工程1: 現在状態と例外を分離する
+This skill never hides facts, failures, risks, or mandatory disclosures for the sake of appearance.
 
-会話を次の4つに分類する:
+## Priority when judgments conflict
 
-- `TARGET_STATE` — 修正後に存在し、伝えるべき現在状態
-- `REJECTED_HISTORY` — 取り下げた案、削除対象、誤り、修正理由
-- `VISIBLE_EXCEPTIONS` — 完成面へ残す必要がある比較、開示、不使用訴求
-- `SURFACE` — 受け手が見る見出し、本文、台詞、画像、UI、ナレーション等
+1. Required display for law, safety, contract, or accessibility
+2. Content the user explicitly asked to show on the finished surface
+3. The current state the user last confirmed
+4. Earlier proposals and change history
 
-不在自体を訴求するかどうかで完成物が大きく変わり、会話から判断できない場合だけ質問する。それ以外は現在状態を優先して進める。
+## Procedure
 
-### 工程2: Clean Briefを作る
+Flow: `1 → 2 → 3 → 4a → 4b → (5 on FAIL, back to 4a) → final judgment → output`.
+Intermediate files live in the session scratchpad, never in the user's repository.
 
-`TARGET_STATE`、許可された事実、媒体、トーン、必要な構造だけで内部用briefを組み直す。
+### Step 1: Classify and write the manifest
+
+Sort the conversation into four groups:
+
+- `TARGET_STATE`: what exists after the correction and must be conveyed
+- `REJECTED_HISTORY`: withdrawn proposals, deleted items, errors, reasons for the change
+- `VISIBLE_EXCEPTIONS`: comparisons, disclosures, or non-use claims that must stay on the surface
+- `SURFACE`: what the receiver sees (headline, body, CTA, dialogue, image, UI, narration, ...)
+
+Then write `pink-elephant-manifest.json` in the scratchpad. The machine-readable schema is
+`schema/manifest.schema.json` at the repository root; the L1 CLI rejects anything that violates it.
+
+| Field | How to fill it |
+|---|---|
+| `schema_version` | `1` |
+| `target_state` | Summary of the current state (the skeleton of the Clean Brief). Not a transcript |
+| `rejected[].id` / `label` | Unique id (`^[a-z0-9][a-z0-9_-]{0,31}$`) and a human-readable name |
+| `rejected[].literal_terms` | Every spelling the term could re-enter as. **Expand variants yourself (SHOULD)**: hiragana / katakana / romaji / English / abbreviations / nicknames used in the conversation. L1 only normalizes (NFKC, case, kana), it never expands. L1's recall depends on this list |
+| `rejected[].concept` | What the element *is*, so that a paraphrase can be recognized. Do not write why it was rejected |
+| `visible_exceptions[]` | `term`, `max_occurrences`, optional `allowed_surfaces` (values from `surface`) and `reason`. A term here must not also appear in any `literal_terms` |
+| `surface` | The labels the receiver's surfaces will carry, e.g. `["headline", "body", "cta"]`. **Declare it**: L2's Attention check depends on it. Use an image/video label (`image_prompt`, `video_prompt`, `storyboard`) for generation prompts |
+
+Never put conversation text, customer data, secrets, or full local paths into the manifest.
+
+Ask the user only when advertising the absence itself would change the deliverable and the
+conversation does not settle it. Otherwise proceed from the current state.
+
+### Step 2: Write the Clean Brief
+
+Rebuild an internal brief from `TARGET_STATE`, permitted facts, medium, tone, and required structure.
 
 MUST:
 
-- 「Xを出さない」ではなく、Xがなくても成立する肯定形で書く。
-- 削除後の空白を、目的に合う内容、構図、動作、情報階層で埋める。
-- 却下理由や元案を、生成用briefへ再投入しない。
+- Write in the affirmative: what the deliverable is, not "do not show X".
+- Fill the space left by the deletion with content, composition, action, or hierarchy that serves the purpose.
+- Do not feed rejection reasons or the original proposal back into the brief.
 
-### 工程3: 現在状態から生成する
+### Step 3: Generate the draft from the current state
 
-Clean Briefだけを制作上の正本として初稿を作る。
-修正前の文章から数語を削る方式ではなく、現在状態を主語にして最初から組み直す。
+Use the Clean Brief as the sole source. Do not trim words from the previous text; compose again with
+the current state as the subject.
 
-### 工程4: Pink Elephant Scanを行う
+Write the draft to a scratchpad file (for example `pink-elephant-draft.txt`). **Start each surface
+with its label on the first line, `<surface value>:`, using exactly the values declared in `surface`.**
+L2 never guesses surfaces: an unlabeled or mislabeled draft gets no Attention check.
 
-初稿の `SURFACE` 全体を5層で検査する:
+```text
+headline: 今月はドリップバッグの詰め合わせ
+body: 常温で持ち運べる焙煎違いの3種をそろえました。
+cta: 店頭でお受け取りください
+```
 
-| 検査 | 確認内容 |
+### Step 4a: L1 literal scan (fail-fast)
+
+```bash
+pink-elephant-scan --manifest <scratchpad>/pink-elephant-manifest.json --draft <scratchpad>/pink-elephant-draft.txt
+```
+
+The binary is on `PATH`, at `${CLAUDE_PLUGIN_ROOT}/bin/pink-elephant-scan` when installed as a plugin,
+or built from `scan/` (see the repository README). Branch on the exit code only:
+
+| exit | Meaning | Action |
+|---|---|---|
+| 0 | PASS | Go to step 4b |
+| 1 | FAIL, `stdout` lists `hits[]` (`term`, `line`, `excerpt`) | Go to step 5. **Do not call L2** |
+| 2 | Invocation error | Fix the command |
+| 3 | Manifest invalid (details on `stderr`) | Back to step 1: rewrite the manifest |
+| 4 | Draft unreadable | Rewrite the draft file and rerun |
+| 5 or other | No verdict | Treat as unchecked; report it if it persists |
+
+If L1 cannot run at all (no binary, no Go), do not inspect the draft yourself in its place. Deliver
+with an explicit statement that machine checks did not run.
+
+### Step 4b: L2 semantic scan (isolated subagent)
+
+Launch the `pink-elephant-semantic-scan` subagent with the Agent tool. **Pass only the two file
+paths. MUST NOT include conversation history, rejection reasons, previous drafts, or your own
+summary of what was removed.** Its isolation from the conversation is what makes its verdict
+uncontaminated.
+
+```text
+manifest: <scratchpad>/pink-elephant-manifest.json
+draft: <scratchpad>/pink-elephant-draft.txt
+Return only the JSON verdict.
+```
+
+Read its JSON (schema: `schema/semantic-scan-output.schema.json`):
+
+- `pass: true`: machine checks are complete. Go to the final judgment.
+- `pass: false`: go to step 5 with `findings[]` (`check`, `line`, `quote`, `note`, `rejected_id` or `exception_term`).
+- No `pass` key (`{"error": ...}`): no verdict. `draft_unreadable`: rewrite the draft and rerun
+  4a → 4b. `manifest_*`: back to step 1.
+- `applied_checks` lacks `"attention"` although you labeled surfaces: the labels do not match
+  `surface`. Fix the draft or the manifest and rerun. It lacks `"visual"` for an image or video
+  prompt: declare a visual surface in `surface` and rerun.
+
+Findings contain no fixes, and you do not ask L2 for any. Regeneration is yours.
+
+### Step 5: Regenerate from the Clean Brief
+
+On FAIL from 4a or 4b, do not delete the flagged words and resubmit. The structure or composition
+itself is probably still centered on the old plan. Use the findings to check the Clean Brief, adjust
+the brief if needed, regenerate the whole draft from it (step 3), then rerun 4a → 4b.
+
+**Two consecutive FAIL cycles mean the classification is wrong, not the wording.** Return to step 1
+and rebuild the manifest: missing `literal_terms` variants, a `concept` that is too narrow or too
+broad, or an exception that belongs in `rejected` (or the reverse). One cycle is one pass through
+4a/4b that ends in FAIL; a no-verdict result does not count.
+
+### Final judgment (L3)
+
+Only after L1 and L2 both PASS: check that the deliverable stands naturally on its own, the last
+acceptance criterion. If, for example, every sentence is "we no longer have ...", adjust the Clean
+Brief and regenerate through 4a → 4b again. This judgment can send a passed draft back. It can never
+promote an unchecked or failed draft.
+
+Acceptance criteria and who establishes them:
+
+| Criterion | Established by |
 |---|---|
-| Literal leak | 却下語、表記揺れ、画像内文字、ラベル |
-| Semantic leak | 同義語、上位語、言い換え、否定形、婉曲表現 |
-| Rationale leak | 削除理由、「代わりに」「以前は」などの変更説明 |
-| Attention leak | 不在や比較が見出し、冒頭、CTA、結論の主題になっていないか |
-| Visual leak | 削除物、輪郭、破片、影、容器、持ち手、プレースホルダー |
+| No rejected term outside `VISIBLE_EXCEPTIONS` | L1 (exit 0) |
+| No residue through synonyms, negation, or euphemism | L2 `semantic` |
+| No deletion reason, change explanation, or emphasis on absence | L2 `rationale` |
+| Title, opening, CTA, and conclusion are about the current purpose | L2 `attention` |
+| No visual or audio residue in what could be inspected | L2 `visual` (prompt text only) |
+| Exceptions stay within their place, purpose, and count | L1 (count), L2 `attention` (placement, intent) |
+| Nothing unchecked is reported as checked | `applied_checks` and your report |
+| The deliverable reads as the current plan, not as a deletion | L3, this step |
 
-`VISIBLE_EXCEPTIONS`は、指定された場所、目的、範囲でのみ許可する。
+## Media-specific requirements
 
-### 工程5: 汚染した初稿を捨てて再生成する
+Read `references/media-requirements.md` (next to this file) before step 2 when the deliverable is an
+image generation prompt, a video generation prompt, or UI copy and labels. For plain text, its short
+text section applies; the rest is not needed and is not loaded by default.
 
-検査がFAILの場合、漏れた単語だけを消して修理してはならない。
-説明構造や構図自体が旧案中心になっている可能性があるため、工程2のClean Briefから再生成し、再度Pink Elephant Scanを行う。
+## Output
 
-## 媒体別要件
-
-文章:
-
-- 見出し、冒頭、本文、CTA、脚注まで検査する。
-- 「廃止しました」「現在はありません」など、不在の説明を安易に置かない。
-- ユーザーが差分報告を求めていない限り、変更経緯を完成稿へ出さない。
-
-画像生成プロンプト:
-
-- 現在必要な被写体、形、配置、素材、光、接触関係を肯定形で記述する。
-- 却下物を長いnegative promptとして再列挙しない。
-- 表示文字、ラベル、背景小物に旧案が残っていないか確認する。
-- 実画像を確認していない場合、画素上の残留を検査済みと報告しない。
-
-動画生成プロンプト:
-
-- 現在必要な被写体、因果、動作、カメラ、編集、音、文字、最終フレームを定義する。
-- 旧案の出来事を「起こらない出来事」として脚本へ残さない。
-- 音だけに警報、失敗音、旧案の台詞が残っていないか確認する。
-- 実動画を確認していない場合、フレームまたは音声上の残留を検査済みと報告しない。
-
-UIとラベル:
-
-- 非表示にした機能名を空欄、無効ラベル、プレースホルダーとして残さない。
-- 変更履歴画面や管理者向け監査画面は非発動対象として扱える。
-- 利用者へ必要なエラー、安全表示、状態説明は消さない。
-
-## 検収基準
-
-次の8条件を満たしたときPASSとする:
-
-- `VISIBLE_EXCEPTIONS`にない却下要素の語句が0件。
-- 同義表現、否定形、婉曲表現による意味残留が0件。
-- 削除理由、変更説明、不在の強調が0件。
-- タイトル、冒頭、CTA、結論が現在の目的を主題にしている。
-- 画像または動画では、確認可能な範囲に視覚・音声残留がない。
-- 例外表示が指定された場所、目的、範囲を越えていない。
-- 未確認の媒体を検査済みと報告していない。
-- 完成物が削除跡に見えず、現在案だけで自然に成立している。
-
-## 出力
-
-- `TARGET_STATE`だけで自立した完成物を返す。
-- ユーザーが「完成稿だけ」と指定した場合、検査報告や工程の説明を添えない。
-- 検査報告を求められた場合のみ、Scanの結果を簡潔に添える。
+- Return a deliverable that stands on `TARGET_STATE` alone. Do not include the manifest, the brief,
+  or the findings in it.
+- If the user asked for the finished piece only (「完成稿だけ」), attach no report and no description of the steps.
+- If a report is requested, cite the L1 output and the L2 JSON. Say which checks were applied
+  (`applied_checks`) and what was not inspected, such as actual rendered images, video, or audio.
+  Never describe your own reading as verification.

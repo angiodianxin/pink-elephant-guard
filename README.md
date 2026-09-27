@@ -8,8 +8,8 @@
 | 層 | 実体 | 役割 | 状態 |
 |---|---|---|---|
 | L1 | `scan/`（Go CLI `pink-elephant-scan`） | 却下語の字面再侵入（Literal leak）を決定論的に検査する。トークン消費 0 | 実装済み |
-| L2 | [`agents/semantic-scan.md`](agents/semantic-scan.md)（Haiku サブエージェント） | Semantic / Rationale / Attention / Visual leak を、会話履歴を見ない隔離コンテキストで検査する | 定義済み（実挙動は未検証・#12。SKILL.md からの呼び出しは未接続・#10） |
-| L3 | [`skills/pink-elephant-guard/SKILL.md`](skills/pink-elephant-guard/SKILL.md) | 統括・manifest 作成・再生成 | — |
+| L2 | [`agents/semantic-scan.md`](agents/semantic-scan.md)（Haiku サブエージェント） | Semantic / Rationale / Attention / Visual leak を、会話履歴を見ない隔離コンテキストで検査する | 定義済み（実挙動は未検証・#12） |
+| L3 | [`skills/pink-elephant-guard/SKILL.md`](skills/pink-elephant-guard/SKILL.md) | 統括・manifest 作成・Clean Brief・生成・再生成・最終判断。工程は 1→2→3→4a（L1）→4b（L2）→5。媒体別要件は [`references/media-requirements.md`](skills/pink-elephant-guard/references/media-requirements.md) へ分離 | 3 層統括版（#10）。実挙動は未検証・#12 |
 
 `pink-elephant-manifest.json` は L1/L2/L3 間の中間生成物で、スキーマの正本は
 [`schema/manifest.schema.json`](schema/manifest.schema.json)。利用時に生成される
@@ -72,7 +72,8 @@ L1 を PASS した初稿を、[`agents/semantic-scan.md`](agents/semantic-scan.m
 検査者自身が旧案に汚染されないための隔離であり、この層の価値そのものである。
 
 prompt ファイルが存在するだけで、実挙動はまだ検証していない（受け入れテストは #12）。
-SKILL.md（L3）からの呼び出しも未接続（#10）。L1 のように `go test` で挙動が固定されているわけではない。
+SKILL.md（L3）の工程 4b から Agent ツールで起動する（manifest と初稿のパスのみを渡す）。
+L1 のように `go test` で挙動が固定されているわけではない。
 
 | 検査 | 確認内容 | 実施条件 |
 |---|---|---|
