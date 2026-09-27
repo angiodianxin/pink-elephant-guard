@@ -1,62 +1,41 @@
-# Media-specific requirements
+# 媒体別要件
 
-Supplement to `SKILL.md`. Read it before writing the Clean Brief (step 2) when the deliverable is an
-image generation prompt, a video generation prompt, or UI copy and labels. The text section is short
-and applies to any written surface.
+`SKILL.md` の補足。完成物が画像生成プロンプト、動画生成プロンプト、UI 文言・ラベルのときは、
+Clean Brief（工程 2）を書く前に読む。「文章」節は短く、あらゆる文字面に適用される。
 
-Common rule for every medium: **report as checked only what was actually inspected.** L1 and L2 see
-the draft text. Nobody in this pipeline sees rendered pixels, frames, or audio unless you opened the
-real file. Say so in any report.
+全媒体に共通する規則: **実際に確認したものだけを検査済みと報告する。** L1 と L2 が見るのは初稿の文面である。
+実ファイルを開かない限り、この工程の誰も描画された画素、フレーム、音声を見ていない。報告ではその旨を明記する。
 
-## Text
+## 文章
 
-Applies to copy, headlines, CTAs, articles, posts, dialogue, narration, subtitles, and summaries.
+コピー、見出し、CTA、記事、投稿、台詞、ナレーション、字幕、要約に適用する。
 
-- Inspection covers every surface: headline, opening, body, CTA, footnotes. Label each one in the
-  draft so L2 can check where the attention goes.
-- Do not fall back on explaining an absence (「廃止しました」「現在はありません」, "no longer
-  available"). The current offer is the subject.
-- Do not put the change history on the finished surface unless the user asked for a diff or a change
-  report. In that case the skill does not apply to that report.
+- 検査は見出し、冒頭、本文、CTA、脚注まで、すべての面に及ぶ。L2 が注意の偏りを面ごとに判定できるよう、初稿では各面にラベルを付ける。
+- 「廃止しました」「現在はありません」など、不在の説明に安易に頼らない。現在の提供内容が主語である。
+- ユーザーが差分報告や変更報告を求めていない限り、変更経緯を完成面へ出さない。求められた場合、その報告には本スキルを適用しない。
 
-## Image generation prompts
+## 画像生成プロンプト
 
-- Describe, in the affirmative, the subject, shape, placement, material, light, and contact
-  relationships that are needed now.
-- Do not re-list rejected objects as a long negative prompt. A negative prompt that names the old plan
-  is a Literal leak and keeps the model's attention on it.
-- Check that in-image text, labels, signage, packaging, price tags, and background props carry no
-  trace of the old plan.
-- Watch for residue shapes: the removed object's outline, fragments, shadow, reflection, its container,
-  plate, handle, or an empty stand or placeholder where it used to be.
-- Declare an image surface in the manifest (`image_prompt` or similar) so L2 applies the Visual check.
-- If you have not looked at the rendered image, do not report pixel-level residue as inspected.
+- 現在必要な被写体、形、配置、素材、光、接触関係を肯定形で記述する。
+- 却下物を長い negative prompt として再列挙しない。旧案を名指しする negative prompt は Literal leak であり、モデルの注意を旧案に留める。
+- 画像内文字、ラベル、看板、包装、値札、背景小物に旧案の名残がないか確認する。
+- 残留形状に注意する: 削除物の輪郭、破片、影、反射、容器、皿、持ち手、かつて置かれていた場所の空の台やプレースホルダー。
+- L2 が Visual 検査を適用するよう、manifest の `surface` に画像系の面（`image_prompt` など）を宣言する。
+- 描画された画像を見ていない場合、画素上の残留を検査済みと報告しない。
 
-## Video generation prompts
+## 動画生成プロンプト
 
-- Define the subject, causality, actions, camera, editing, sound, on-screen text, and the final frame
-  that are needed now.
-- Do not keep old-plan events in the script as things that "do not happen". An event that is named as
-  not happening is still on the surface.
-- Check the audio track on its own: alarms, failure sounds, or lines of dialogue from the old plan can
-  survive there when the visuals are clean.
-- Check the final frame separately. It is the last thing the viewer sees and the most common place for
-  an old title card or product to linger.
-- Declare a video surface in the manifest (`video_prompt`, `storyboard`, or similar) so L2 applies the
-  Visual check.
-- If you have not watched the rendered video, do not report frame or audio residue as inspected.
+- 現在必要な被写体、因果、動作、カメラ、編集、音、画面内文字、最終フレームを定義する。
+- 旧案の出来事を「起こらない出来事」として脚本へ残さない。起こらないと名指しされた出来事も完成面に載っている。
+- 音声トラックを単独で確認する。警報、失敗音、旧案の台詞は、映像が綺麗でも音だけに残ることがある。
+- 最終フレームを別途確認する。視聴者が最後に見る面であり、旧タイトルカードや旧商品が最も残りやすい。
+- L2 が Visual 検査を適用するよう、manifest の `surface` に動画系の面（`video_prompt`、`storyboard` など）を宣言する。
+- 描画された動画を見ていない場合、フレームや音声上の残留を検査済みと報告しない。
 
-## UI copy and labels
+## UI 文言とラベル
 
-- Do not leave a hidden feature's name as an empty field, a disabled label, a placeholder, or a tooltip.
-  Remove the element or give it its current purpose.
-- Change-history screens and administrator audit screens are outside this skill: they exist to name
-  what changed.
-- Never remove errors, safety notices, or status messages the user needs. These rank above the
-  current-state preference (priority 1 in `SKILL.md`).
-- Check every locale and every string file the surface is built from, not just the one in the
-  conversation.
-- When UI copy lives in a repository, the L1 CLI may run continuously (MAY): as a textlint or ESLint
-  custom rule fed with the same `literal_terms`, or from a Claude Code `PostToolUse` hook (matcher
-  `Write|Edit`) that rejects a write when `pink-elephant-scan` exits 1. L1 then applies without going
-  through the model's judgment. This is an option the user chooses, not a default of this skill.
+- 非表示にした機能名を、空欄、無効ラベル、プレースホルダー、ツールチップとして残さない。要素ごと消すか、現在の目的を与える。
+- 変更履歴画面や管理者向け監査画面は本スキルの対象外である。変更点を名指しするために存在する画面だからである。
+- 利用者へ必要なエラー、安全表示、状態説明は消さない。これらは現在状態の優先より上位にある（`SKILL.md` 優先順位 1）。
+- 会話に出た文字列ファイルだけでなく、その面を構成するすべてのロケール・文字列ファイルを確認する。
+- UI 文言がリポジトリ内のファイルである場合、L1 CLI を常駐させてもよい（MAY）: 同じ `literal_terms` を写した textlint / ESLint のカスタムルール、または Claude Code の `PostToolUse` hook（matcher `Write|Edit`）から `pink-elephant-scan` を呼び、exit 1 なら書込みを拒否する。この場合 L1 はモデルの判断を経由せず適用される。これは利用者が選ぶ選択肢であり、本スキルの既定ではない。
