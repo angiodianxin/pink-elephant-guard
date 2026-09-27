@@ -9,15 +9,15 @@
 |---|---|---|---|
 | L1 | `scan/`（Go CLI `pink-elephant-scan`） | 却下語の字面再侵入（Literal leak）を決定論的に検査する。トークン消費 0 | 実装済み |
 | L2 | [`agents/semantic-scan.md`](agents/semantic-scan.md)（Haiku サブエージェント） | Semantic / Rationale / Attention / Visual leak を、会話履歴を見ない隔離コンテキストで検査する | 定義済み（実挙動は未検証・#12） |
-| L3 | [`skills/pink-elephant-guard/SKILL.md`](skills/pink-elephant-guard/SKILL.md) | 統括・manifest 作成・Clean Brief・生成・再生成・最終判断。工程は 1→2→3→4a（L1）→4b（L2）→5。媒体別要件は [`references/media-requirements.md`](skills/pink-elephant-guard/references/media-requirements.md) へ分離 | 3 層統括版（#10）。実挙動は未検証・#12 |
+| L3 | [`skills/pink-elephant-guard/SKILL.md`](skills/pink-elephant-guard/SKILL.md) | 統括・manifest 作成・Clean Brief・生成・再生成・最終判断。工程は 1→2→3→4a（L1）→4b（L2）→5。媒体別要件は [`references/`](skills/pink-elephant-guard/references/) へ媒体ごとに分離 | 3 層統括版（#10）。実挙動は未検証・#12 |
 
 `pink-elephant-manifest.json` は L1/L2/L3 間の中間生成物で、スキーマの正本は
 [`schema/manifest.schema.json`](schema/manifest.schema.json)。利用時に生成される
 実ファイルはユーザー内容を含み得るため、コミットしない（`.gitignore` 済み）。
 
-媒体別要件（文章・画像生成プロンプト・動画生成プロンプト・UI とラベル）の詳細は
-[`skills/pink-elephant-guard/references/media-requirements.md`](skills/pink-elephant-guard/references/media-requirements.md)
-にあり、SKILL.md からは媒体を確定した時点で該当節だけを読む（progressive disclosure、`design-claude.md` §13.1）。
+媒体別要件の詳細は [`skills/pink-elephant-guard/references/`](skills/pink-elephant-guard/references/) に
+媒体ごとのファイル（`text.md`・`image-prompt.md`・`video-prompt.md`・`ui.md`）として置き、
+SKILL.md からは媒体を確定した時点で該当ファイルだけを読む（progressive disclosure、`design-claude.md` §13.1）。
 
 ## 動作要件
 

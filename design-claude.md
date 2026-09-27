@@ -404,8 +404,11 @@ pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 ├─ skills/
 │  └─ pink-elephant-guard/
 │     ├─ SKILL.md                    # L3向け: 工程の統括、manifest作成手順、発動判断
-│     └─ references/
-│        └─ media-requirements.md    # 媒体別要件の詳細（必要時のみ読む）
+│     └─ references/                 # 媒体別要件の詳細（媒体を確定した時点で該当ファイルだけ読む）
+│        ├─ text.md                   # 文章
+│        ├─ image-prompt.md           # 画像生成プロンプト
+│        ├─ video-prompt.md           # 動画生成プロンプト
+│        └─ ui.md                     # UI とラベル（L1 常駐の選択肢を含む）
 ├─ agents/
 │  └─ semantic-scan.md               # L2: Haikuサブエージェント定義
 ├─ scan/                             # L1: Goソース（同梱、正本）
