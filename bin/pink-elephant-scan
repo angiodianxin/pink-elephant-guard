@@ -1,0 +1,96 @@
+#!/usr/bin/env sh
+# L1 CLI pink-elephant-scan のランチャー（プラグイン導入時に PATH へ載る、design-claude.md §13.5）。
+#
+# バイナリは Git にコミットしない（§13.1 MUST）ため、初回実行時に実体を用意してキャッシュし、以後はそれを exec する。
+#   1. キャッシュ済みの実体があればそれを使う
+#   2. go があれば同梱の scan/ からビルドする
+#   3. ビルドできなければ GitHub Releases から同じ版のバイナリを取得し、SHA256SUMS.txt で検証する
+#
+# キャッシュ: ${PINK_ELEPHANT_SCAN_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/pink-elephant-guard}/v<version>/
+# 版は .claude-plugin/plugin.json の version（= Git タグ、§13.6）。
+#
+# stdout は本体の検査結果だけに使う（scan/DESIGN.md §2）。準備中の出力はすべて stderr へ出す。
+# 実体を用意できなかった場合は exit 127 で終了する（0/1 以外 = 判定なし）。
+set -eu
+
+repo=angiodianxin/pink-elephant-guard
+name=pink-elephant-scan
+
+fail() {
+	echo "$name: $*" >&2
+	exit 127
+}
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+
+version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$root/.claude-plugin/plugin.json" | head -n 1)
+[ -n "$version" ] || fail "cannot read version from $root/.claude-plugin/plugin.json"
+
+case $(uname -s) in
+	Linux*) os=linux ;;
+	Darwin*) os=darwin ;;
+	MINGW* | MSYS* | CYGWIN*) os=windows ;;
+	*) os=unknown ;;
+esac
+case $(uname -m) in
+	x86_64 | amd64) arch=amd64 ;;
+	arm64 | aarch64) arch=arm64 ;;
+	*) arch=unknown ;;
+esac
+ext=
+[ "$os" = windows ] && ext=.exe
+
+cache=${PINK_ELEPHANT_SCAN_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/pink-elephant-guard}/v$version
+bin=$cache/$name$ext
+
+if [ ! -x "$bin" ]; then
+	mkdir -p "$cache" || fail "cannot create cache directory: $cache"
+	tmp=$(mktemp -d "$cache/.tmp.XXXXXX") || fail "cannot create temporary directory in $cache"
+	trap 'rm -rf "$tmp"' EXIT
+
+	built=
+	if command -v go >/dev/null 2>&1 && [ -f "$root/scan/go.mod" ]; then
+		echo "$name: building from source ($root/scan)" >&2
+		if (cd "$root/scan" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$tmp/$name$ext" .) 1>&2; then
+			built=1
+		else
+			echo "$name: build failed; falling back to release download" >&2
+		fi
+	fi
+
+	if [ -z "$built" ]; then
+		[ "$os" != unknown ] && [ "$arch" != unknown ] || fail "unsupported platform: $(uname -s)/$(uname -m) (install Go 1.22+ to build from source)"
+		asset=${name}_${os}_${arch}${ext}
+		base=https://github.com/$repo/releases/download/v$version
+		echo "$name: downloading $asset (v$version)" >&2
+		if command -v curl >/dev/null 2>&1; then
+			get() { curl -fsSL -o "$2" "$1"; }
+		elif command -v wget >/dev/null 2>&1; then
+			get() { wget -q -O "$2" "$1"; }
+		else
+			fail "neither curl nor wget is available"
+		fi
+		get "$base/$asset" "$tmp/$asset" || fail "download failed: $base/$asset (no release asset for $os/$arch? install Go 1.22+ to build from source)"
+		get "$base/SHA256SUMS.txt" "$tmp/SHA256SUMS.txt" || fail "download failed: $base/SHA256SUMS.txt"
+
+		expected=$(awk -v f="$asset" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA256SUMS.txt")
+		if command -v sha256sum >/dev/null 2>&1; then
+			actual=$(sha256sum "$tmp/$asset" | awk '{ print $1 }')
+		elif command -v shasum >/dev/null 2>&1; then
+			actual=$(shasum -a 256 "$tmp/$asset" | awk '{ print $1 }')
+		else
+			fail "neither sha256sum nor shasum is available; cannot verify $asset"
+		fi
+		[ -n "$expected" ] && [ "$expected" = "$actual" ] || fail "checksum mismatch for $asset"
+		mv "$tmp/$asset" "$tmp/$name$ext"
+	fi
+
+	chmod 755 "$tmp/$name$ext"
+	# 同時実行に備え、完成した実体だけを rename で置く
+	mv -f "$tmp/$name$ext" "$bin" || fail "cannot install into $cache"
+	rm -rf "$tmp"
+	trap - EXIT
+	echo "$name: ready ($bin)" >&2
+fi
+
+exec "$bin" "$@"

@@ -1,0 +1,4 @@
+# シェルスクリプトは Windows（core.autocrlf=true）で clone・プラグイン導入されても LF のまま置く。
+# CRLF になると Git Bash / sh が "\r: command not found" で実行できない。
+bin/pink-elephant-scan text eol=lf
+*.sh text eol=lf

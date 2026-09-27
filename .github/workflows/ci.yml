@@ -54,6 +54,24 @@ jobs:
       - name: cross-compile check
         run: scripts/build-release.sh dist
 
+      # プラグイン用ランチャー bin/pink-elephant-scan（design-claude.md §13.5）。
+      # go がある環境ではソースからビルドする経路を通り、stdout を汚さずに本体の終了コードを返すことを確認する。
+      # （Releases からのダウンロード経路は、PR 時点で同じ版のリリースが存在するとは限らないため CI では通さない）
+      - name: plugin launcher
+        env:
+          PINK_ELEPHANT_SCAN_CACHE: ${{ runner.temp }}/scan-cache
+        run: |
+          sh -n bin/pink-elephant-scan
+          test -x bin/pink-elephant-scan
+          set +e
+          out=$(bin/pink-elephant-scan --manifest /dev/null --draft /dev/null)
+          code=$?
+          set -e
+          if [ "$code" -ne 3 ] || [ -n "$out" ]; then
+            echo "::error::launcher: exit=$code (want 3), stdout=$out (want empty)"
+            exit 1
+          fi
+
   version:
     name: version consistency
     runs-on: ubuntu-latest

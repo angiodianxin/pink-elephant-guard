@@ -231,20 +231,20 @@ manifest ファイル自体の読取り不可も同じ `manifest` カテゴリ�
 cd scan
 go vet ./...
 go test ./...
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../bin/pink-elephant-scan .
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../dist/pink-elephant-scan .
 ```
 
 - `CGO_ENABLED=0` の単一静的バイナリとしてビルドできること（MUST）。`x/text` は pure Go であり cgo 依存はない。
 - クロスコンパイル（SHOULD）:
 
 ```text
-GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../bin/pink-elephant-scan_linux_amd64 .
-GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../bin/pink-elephant-scan_darwin_arm64 .
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../bin/pink-elephant-scan_windows_amd64.exe .
+GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../dist/pink-elephant-scan_linux_amd64 .
+GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../dist/pink-elephant-scan_darwin_arm64 .
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../dist/pink-elephant-scan_windows_amd64.exe .
 ```
 
 - `-trimpath` でビルド環境のフルパスを埋め込まない（§17 プライバシー）。
-- 成果物は `bin/`（.gitignore 対象）へ置き、配布は GitHub Releases + SHA-256 チェックサム（§13.6）。バイナリはコミットしない（MUST）。
+- 成果物は `dist/`（.gitignore 対象）へ置き、配布は GitHub Releases + SHA-256 チェックサム（§13.6）。バイナリはコミットしない（MUST）。
 - ネットワーク通信・環境変数・設定ファイルは一切使わない。入力は引数の 2 ファイルのみ、出力は stdout/stderr のみ。
 
 ## 8. テスト観点（scan_test.go / Issue #8 への引き継ぎ）

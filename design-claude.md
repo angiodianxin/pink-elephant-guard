@@ -393,7 +393,8 @@ PASS判定はL1・L2の機械的/隔離検査の結果からのみ導き、L3の
 ~~~text
 pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 ├─ .claude-plugin/
-│  └─ plugin.json                    # プラグインメタデータ（name, description, version, author）
+│  ├─ plugin.json                    # プラグインメタデータ（name, description, version, author）
+│  └─ marketplace.json               # 本リポジトリを単一プラグインのマーケットプレイスとして公開する（source: "."）
 ├─ .github/
 │  └─ workflows/
 │     ├─ ci.yml                      # push/PR: gofmt・go vet・go test・クロスコンパイル確認・版整合
@@ -420,8 +421,11 @@ pink-elephant-guard/                 # GitHubリポジトリ = プラグイン
 ├─ schema/
 │  ├─ manifest.schema.json           # manifest スキーマの機械可読な正本（JSON Schema draft 2020-12、§7.2）
 │  └─ semantic-scan-output.schema.json  # L2出力スキーマの機械可読な正本（同 draft 2020-12、§13.4）
-├─ bin/                              # ビルド成果物の置き場（.gitignore対象、コミットしない）
-├─ .gitignore                        # bin/、dist/、pink-elephant-manifest.json 等
+├─ bin/
+│  └─ pink-elephant-scan             # L1ランチャー（シェルスクリプト、コミット対象）。プラグイン有効時にPATHへ載り、初回に実体をビルドまたはダウンロードする（§13.5）
+├─ dist/                             # ビルド成果物の置き場（.gitignore対象、コミットしない）
+├─ .gitattributes                    # シェルスクリプトをLFに固定（Windowsでのclone・プラグイン導入時のCRLF化を防ぐ）
+├─ .gitignore                        # bin/*（ランチャーを除く）、dist/、pink-elephant-manifest.json 等
 ├─ CHANGELOG.md                      # 変更履歴（Keep a Changelog、版は plugin.json・Gitタグと一致、§13.6）
 ├─ README.md                         # 概要、インストール手順、3層アーキテクチャの説明
 └─ design-claude.md                  # 本仕様書
@@ -521,11 +525,21 @@ L2はReadが返す範囲だけを見るため、初稿・manifestは必ず末尾
 **推奨: プラグインとしてインストール。** スキル・エージェント・scanが1単位で入り、更新も追従できる。
 
 ~~~text
-/plugin marketplace add <owner>/pink-elephant-guard
-/plugin install pink-elephant-guard
+/plugin marketplace add angiodianxin/pink-elephant-guard
+/plugin install pink-elephant-guard@pink-elephant-guard
 ~~~
 
-（マーケットプレイス形式で公開する場合は `.claude-plugin/marketplace.json` を追加する。単体プラグインとしては `plugin.json` のみでよい。）
+`.claude-plugin/marketplace.json` で本リポジトリ自身を単一プラグインのマーケットプレイスとして公開する（plugin の `source` は `"."`）。
+プラグイン経由ではスキルが `/pink-elephant-guard:pink-elephant-guard`、サブエージェントが `pink-elephant-guard:pink-elephant-semantic-scan` の名前になる。
+
+L1 の配布（プラグイン経由）: プラグインルートの `bin/` はプラグイン有効時に Bash ツールの `PATH` へ載る。バイナリはコミットしない（§13.1 MUST）ため、
+`bin/pink-elephant-scan` には実体ではなくランチャー（POSIX sh）を置き、初回実行時に次の順で実体を用意して `~/.cache/pink-elephant-guard/v<version>/` へキャッシュする。
+
+1. `go` があれば同梱の `scan/` からビルドする（正本のソースから作るため、第一候補とする）
+2. ビルドできなければ GitHub Releases から `plugin.json` の `version` と同じタグのバイナリを取得し、`SHA256SUMS.txt` で検証する。不一致なら使わない（MUST）
+
+ランチャーは準備中の出力をすべて stderr へ出し、stdout を本体の検査結果だけに保つ（MUST）。実体を用意できない場合は exit 127 で終了し、0/1 を返さない（「0/1 以外 = 判定なし」）。
+claude.ai と Cowork はトップレベルに `bin/` を持つプラグインを導入しないため、本プラグインは Claude Code 専用とする。
 
 代替: スキルだけを手動コピーする。
 
@@ -535,6 +549,7 @@ L2はReadが返す範囲だけを見るため、初稿・manifestは必ず末尾
 ~~~
 
 手動コピーの場合、サブエージェント定義は `~/.claude/agents/` へ、L1バイナリはReleasesから取得してPATHの通る場所へ、それぞれ利用者が配置する。README にこの手順を明記する（MUST）。
+手動コピーではスキル・サブエージェントに名前空間が付かない（`/pink-elephant-guard`、`pink-elephant-semantic-scan`）。
 
 配置後は新しいセッションでスキル一覧に載る。`/pink-elephant-guard` で明示発動でき、description に合致する依頼では Skill ツール経由で暗黙発動する。
 

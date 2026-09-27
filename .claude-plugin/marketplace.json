@@ -1,0 +1,17 @@
+{
+  "name": "pink-elephant-guard",
+  "owner": {
+    "name": "angiodianxin",
+    "url": "https://github.com/angiodianxin"
+  },
+  "metadata": {
+    "description": "Marketplace for the pink-elephant-guard Claude Code plugin."
+  },
+  "plugins": [
+    {
+      "name": "pink-elephant-guard",
+      "source": ".",
+      "description": "Prevent rejected, removed, corrected, or forbidden concepts from resurfacing as the topic of a final deliverable. Isolates change history and rebuilds viewer-facing output from the current state only."
+    }
+  ]
+}
