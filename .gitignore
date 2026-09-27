@@ -1,5 +1,7 @@
 # Build artifacts (binaries are distributed via GitHub Releases, not Git)
-bin/
+# bin/pink-elephant-scan だけはプラグイン用のランチャー（シェルスクリプト）でコミットする
+bin/*
+!bin/pink-elephant-scan
 # scripts/build-release.sh の出力（リリース添付物）
 dist/
 

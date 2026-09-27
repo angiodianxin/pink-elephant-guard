@@ -11,7 +11,14 @@
 
 ### Added
 
-- README にインストール手順（スキル・サブエージェント定義・L1 バイナリの手動配置、動作確認、アップデート・アンインストール）を追加
+- プラグインとしての導入に対応: `.claude-plugin/marketplace.json` を追加し、`/plugin marketplace add angiodianxin/pink-elephant-guard` → `/plugin install pink-elephant-guard@pink-elephant-guard` で入る
+- L1 ランチャー `bin/pink-elephant-scan`: プラグイン有効時に PATH へ載り、初回実行時に `scan/` からビルド、できなければ Releases から取得・SHA-256 検証してキャッシュする
+- README にインストール手順（プラグイン導入と手動配置、動作確認、アップデート・アンインストール）を追加
+
+### Changed
+
+- ビルド成果物の置き場を `bin/` から `dist/` へ変更（`bin/pink-elephant-scan` はランチャーとしてコミット対象になったため）
+- SKILL.md: プラグイン導入時のサブエージェント名 `pink-elephant-guard:pink-elephant-semantic-scan` と、ランチャーの exit 127 を追記
 
 ## [0.1.0] - 2026-09-28
 
