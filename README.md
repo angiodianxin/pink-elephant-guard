@@ -15,6 +15,10 @@
 [`schema/manifest.schema.json`](schema/manifest.schema.json)。利用時に生成される
 実ファイルはユーザー内容を含み得るため、コミットしない（`.gitignore` 済み）。
 
+媒体別要件（文章・画像生成プロンプト・動画生成プロンプト・UI とラベル）の詳細は
+[`skills/pink-elephant-guard/references/media-requirements.md`](skills/pink-elephant-guard/references/media-requirements.md)
+にあり、SKILL.md からは媒体を確定した時点で該当節だけを読む（progressive disclosure、`design-claude.md` §13.1）。
+
 ## 動作要件
 
 - Claude Code（スキルとしての利用）
