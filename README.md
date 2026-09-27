@@ -24,6 +24,103 @@ SKILL.md からは媒体を確定した時点で該当ファイルだけを読�
 - Claude Code（スキルとしての利用）
 - Go 1.22+ — **L1 CLI のビルド時のみ**必要（[Releases](https://github.com/angiodianxin/pink-elephant-guard/releases) の配布バイナリを使う場合は不要）
 
+## インストール
+
+スキル（L3）・サブエージェント定義（L2）・L1 バイナリの 3 点を配置する。
+どれか 1 つでも欠けると工程 4a / 4b を実施できず、スキルは「機械検査が実施できなかった」ことを明記して出力する。
+
+> プラグインとしての導入（`/plugin marketplace add` → `/plugin install`）は、
+> `.claude-plugin/marketplace.json` が未整備のため現時点では使えない。以下の手動配置で導入する。
+
+### 1. リポジトリを取得する
+
+```sh
+git clone https://github.com/angiodianxin/pink-elephant-guard.git
+cd pink-elephant-guard
+git checkout v0.1.0   # リリース版に固定する場合
+```
+
+### 2. スキルとサブエージェント定義を配置する
+
+個人用（全プロジェクト共通）なら `~/.claude/`、特定のリポジトリだけで使うなら `<project>/.claude/` へ置く。
+
+```sh
+mkdir -p ~/.claude/skills ~/.claude/agents
+cp -r skills/pink-elephant-guard ~/.claude/skills/
+cp agents/semantic-scan.md ~/.claude/agents/pink-elephant-semantic-scan.md
+```
+
+- スキルはディレクトリごと（`SKILL.md` と `references/`）コピーする。`references/` が欠けると媒体別要件を読めない。
+- サブエージェントは frontmatter の `name`（`pink-elephant-semantic-scan`）で呼ばれる。ファイル名は任意だが、揃えておくと管理しやすい。
+
+### 3. L1 バイナリを配置する
+
+[Releases](https://github.com/angiodianxin/pink-elephant-guard/releases) から自分の環境のバイナリと
+`SHA256SUMS.txt` を取得し、チェックサムを検証してから **`pink-elephant-scan`（Windows は `pink-elephant-scan.exe`）に
+名前を変えて** `PATH` の通るディレクトリへ置く。スキルは `PATH` 上の `pink-elephant-scan` を呼ぶ。
+
+| 環境 | 添付ファイル |
+|---|---|
+| Linux (x86_64) | `pink-elephant-scan_linux_amd64` |
+| macOS (Apple Silicon) | `pink-elephant-scan_darwin_arm64` |
+| Windows (x86_64) | `pink-elephant-scan_windows_amd64.exe` |
+
+取得には [GitHub CLI](https://cli.github.com/)（`gh`、`gh auth login` 済み）を使う。
+リポジトリは現在 private のため、未認証の `curl` やブラウザの匿名アクセスでは取得できない（404 になる）。
+
+Linux / macOS の例（`~/.local/bin` が `PATH` に入っている前提）:
+
+```sh
+f=pink-elephant-scan_linux_amd64   # macOS は pink-elephant-scan_darwin_arm64
+gh release download v0.1.0 --repo angiodianxin/pink-elephant-guard -p "$f" -p SHA256SUMS.txt
+sha256sum -c --ignore-missing SHA256SUMS.txt   # macOS は shasum -a 256 -c --ignore-missing SHA256SUMS.txt
+mkdir -p ~/.local/bin
+install -m 755 "$f" ~/.local/bin/pink-elephant-scan
+```
+
+`<ファイル名>: OK` と出れば検証済み。macOS でブラウザからダウンロードした場合は、
+Gatekeeper の隔離属性を外す必要がある（`xattr -d com.apple.quarantine ~/.local/bin/pink-elephant-scan`）。
+
+Windows（PowerShell）の例:
+
+```powershell
+$f = 'pink-elephant-scan_windows_amd64.exe'
+gh release download v0.1.0 --repo angiodianxin/pink-elephant-guard -p $f -p SHA256SUMS.txt
+(Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+Select-String windows_amd64 SHA256SUMS.txt   # 上の値と一致することを確認する
+New-Item -ItemType Directory -Force "$HOME\bin" | Out-Null
+Move-Item $f "$HOME\bin\pink-elephant-scan.exe"
+```
+
+`$HOME\bin` が `PATH` に無ければ、Windows の「環境変数」設定からユーザーの `Path` に追加する。
+
+配布バイナリの無い環境（Intel Mac、arm64 Linux 等）や、ソースから入れたい場合は Go 1.22+ でビルドする
+（[ビルド](#ビルド)参照）。`bin/pink-elephant-scan` ができるので、同様に `PATH` の通る場所へ置く。
+
+### 4. 動作を確認する
+
+```sh
+pink-elephant-scan --manifest /dev/null --draft /dev/null; echo "exit=$?"
+```
+
+`exit=3`（空の manifest を不正として拒否。stderr に `manifest error`）が返れば、バイナリは `PATH` 上で動いている。
+`command not found` の場合は `PATH` を見直す。PowerShell では `pink-elephant-scan --manifest NUL --draft NUL; $LASTEXITCODE` で同じ確認ができる。
+
+Claude Code は **新しいセッション**を開始するとスキルとサブエージェントを読み込む。
+`/pink-elephant-guard` で明示的に発動でき、「これは消して」「その案はなし」のような依頼では自動で発動する。
+
+### アップデート・アンインストール
+
+- アップデート: リポジトリで新しいタグを checkout し、手順 2・3 をやり直す（上書きでよい）。
+  変更内容は [`CHANGELOG.md`](CHANGELOG.md) を参照。
+- アンインストール: 配置した 3 点を削除する。
+
+  ```sh
+  rm -r ~/.claude/skills/pink-elephant-guard
+  rm ~/.claude/agents/pink-elephant-semantic-scan.md
+  rm ~/.local/bin/pink-elephant-scan
+  ```
+
 ## L1 CLI: pink-elephant-scan
 
 以下は `scan/scan_test.go` が固定している外形契約。
