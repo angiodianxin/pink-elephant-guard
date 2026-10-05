@@ -115,8 +115,9 @@ cta: 店頭でお受け取りください
 pink-elephant-scan --manifest <scratchpad>/pink-elephant-manifest.json --draft <scratchpad>/pink-elephant-draft.txt
 ```
 
-バイナリは `PATH` 上、プラグインとして導入した場合は `${CLAUDE_PLUGIN_ROOT}/bin/pink-elephant-scan`、
-または `scan/` からビルドしたもの（リポジトリの README 参照）。分岐は終了コードだけで行う:
+`pink-elephant-scan` は `PATH` 上にある。プラグインとして導入した場合はプラグインの `bin/` のランチャーが `PATH` に載り、
+初回実行時に実体をビルドまたはダウンロードする（その進捗は `stderr` に出る。`stdout` は検査結果だけ）。
+手動導入の場合はリポジトリの README の手順で配置したもの。分岐は終了コードだけで行う:
 
 | exit | 意味 | 対処 |
 |---|---|---|
@@ -125,14 +126,15 @@ pink-elephant-scan --manifest <scratchpad>/pink-elephant-manifest.json --draft <
 | 2 | 呼び出し方の誤り | コマンドを直す |
 | 3 | manifest 不正（詳細は `stderr`） | 工程 1 へ戻り manifest を作り直す |
 | 4 | 初稿を読めない | 初稿ファイルを書き直して再実行 |
-| 5 またはその他 | 判定なし | 未検査として扱う。繰り返すなら報告する |
+| 5 またはその他 | 判定なし（127 はランチャーが実体を用意できなかった） | 未検査として扱う。繰り返すなら報告する |
 
-L1 をまったく実行できない場合（バイナリも Go も無い）、代わりに自分で初稿を検査してはならない。
+L1 をまったく実行できない場合（コマンドが見つからない、exit 127 など）、代わりに自分で初稿を検査してはならない。
 機械検査が実施できなかったことを明記して出す。
 
 ### 工程4b: L2 意味検査（隔離サブエージェント）
 
-Agent ツールで `pink-elephant-semantic-scan` を起動する。**渡すのは 2 つのファイルパスだけ。
+Agent ツールで `pink-elephant-semantic-scan` を起動する（プラグインとして導入した場合の名前は
+`pink-elephant-guard:pink-elephant-semantic-scan`。利用可能なエージェント一覧にある方を使う）。**渡すのは 2 つのファイルパスだけ。
 会話履歴、却下理由、以前の稿、自分による削除内容の要約を含めてはならない（MUST）。**
 会話から隔離されていることが、汚染されない判定の根拠である。
 

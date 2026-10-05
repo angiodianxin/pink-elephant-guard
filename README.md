@@ -21,8 +21,176 @@ SKILL.md からは媒体を確定した時点で該当ファイルだけを読�
 
 ## 動作要件
 
-- Claude Code（スキルとしての利用）
-- Go 1.22+ — **L1 CLI のビルド時のみ**必要（[Releases](https://github.com/angiodianxin/pink-elephant-guard/releases) の配布バイナリを使う場合は不要）
+- Claude Code（スキル・プラグインとしての利用）
+- Go 1.22+ — **L1 CLI をソースからビルドする場合のみ**必要（[Releases](https://github.com/angiodianxin/pink-elephant-guard/releases) の配布バイナリを使う場合は不要）
+
+## インストール
+
+スキル（L3）・サブエージェント定義（L2）・L1 バイナリの 3 点が必要になる。
+どれか 1 つでも欠けると工程 4a / 4b を実施できず、スキルは「機械検査が実施できなかった」ことを明記して出力する。
+
+導入方法は 2 つある。通常は **プラグインとして導入する**（3 点がまとめて入り、更新も追従できる）。
+
+### プラグインとして導入する（推奨）
+
+Claude Code で次を実行する。
+
+```text
+/plugin marketplace add angiodianxin/pink-elephant-guard
+/plugin install pink-elephant-guard@pink-elephant-guard
+```
+
+ターミナルからは同じことを次で行える。
+
+```sh
+claude plugin marketplace add angiodianxin/pink-elephant-guard
+claude plugin install pink-elephant-guard@pink-elephant-guard
+```
+
+導入後、**新しいセッション**を開始すると読み込まれる。プラグイン経由の名前は次のとおり（プラグイン名で名前空間が付く）。
+
+| 種類 | 名前 |
+|---|---|
+| スキル | `/pink-elephant-guard:pink-elephant-guard`（「これは消して」「その案はなし」のような依頼では自動で発動する） |
+| サブエージェント | `pink-elephant-guard:pink-elephant-semantic-scan` |
+
+#### L1 バイナリの自動準備
+
+プラグインの `bin/pink-elephant-scan` は実体ではなくランチャー（シェルスクリプト）で、プラグインが有効な間は
+Bash ツールの `PATH` に載る。バイナリはコミットしない方針のため、**初回実行時に**次の順で実体を用意してキャッシュする。
+
+1. `go`（1.22+）があれば、プラグインに同梱の `scan/` からビルドする
+2. ビルドできなければ（Go が無い・版が古い・ビルド失敗）、GitHub Releases から同じ版のバイナリを取得し、
+   `SHA256SUMS.txt` で SHA-256 を検証する。一致しなければ使わない
+
+キャッシュ先は `~/.cache/pink-elephant-guard/v<version>/`（`XDG_CACHE_HOME`、または環境変数
+`PINK_ELEPHANT_SCAN_CACHE` で変更できる）。2 回目以降はキャッシュを直接実行し、ネットワークにも Go にも触れない。
+準備中の表示はすべて stderr に出し、stdout は検査結果の JSON だけに保つ。実体を用意できなかった場合は
+exit 127 で終了する（「0/1 以外 = 判定なし」として扱われる）。
+
+必要なもの:
+
+- `sh` と基本コマンド（Windows では Claude Code が使う Git Bash で動く）
+- ビルドする場合: Go 1.22+（初回のみ `golang.org/x/text` の取得にネットワークが要る）
+- ダウンロードする場合: `curl` または `wget`、`sha256sum` または `shasum`。配布バイナリがあるのは
+  linux/amd64・darwin/arm64・windows/amd64 だけで、それ以外（Intel Mac、arm64 Linux 等）は Go が必要
+
+> claude.ai と Cowork は、トップレベルに `bin/` を持つプラグインを導入しない。本プラグインは Claude Code での利用を前提とする。
+
+#### アップデート・アンインストール
+
+```sh
+claude plugin marketplace update pink-elephant-guard
+claude plugin update pink-elephant-guard@pink-elephant-guard
+```
+
+```sh
+claude plugin uninstall pink-elephant-guard@pink-elephant-guard
+rm -rf ~/.cache/pink-elephant-guard   # L1 バイナリのキャッシュ（版ごとに残るので、古い版だけ消してもよい）
+```
+
+変更内容は [`CHANGELOG.md`](CHANGELOG.md) を参照。
+
+### 手動で配置する
+
+プラグイン機能を使わない場合は 3 点を自分で配置する。スキルとサブエージェントには名前空間が付かない
+（`/pink-elephant-guard`、`pink-elephant-semantic-scan`）。
+
+#### 1. リポジトリを取得する
+
+```sh
+git clone https://github.com/angiodianxin/pink-elephant-guard.git
+cd pink-elephant-guard
+git checkout v0.1.0   # リリース版に固定する場合
+```
+
+#### 2. スキルとサブエージェント定義を配置する
+
+個人用（全プロジェクト共通）なら `~/.claude/`、特定のリポジトリだけで使うなら `<project>/.claude/` へ置く。
+
+```sh
+mkdir -p ~/.claude/skills ~/.claude/agents
+cp -r skills/pink-elephant-guard ~/.claude/skills/
+cp agents/semantic-scan.md ~/.claude/agents/pink-elephant-semantic-scan.md
+```
+
+- スキルはディレクトリごと（`SKILL.md` と `references/`）コピーする。`references/` が欠けると媒体別要件を読めない。
+- サブエージェントは frontmatter の `name`（`pink-elephant-semantic-scan`）で呼ばれる。ファイル名は任意だが、揃えておくと管理しやすい。
+
+#### 3. L1 バイナリを配置する
+
+[Releases](https://github.com/angiodianxin/pink-elephant-guard/releases) から自分の環境のバイナリと
+`SHA256SUMS.txt` を取得し、チェックサムを検証してから **`pink-elephant-scan`（Windows は `pink-elephant-scan.exe`）に
+名前を変えて** `PATH` の通るディレクトリへ置く。スキルは `PATH` 上の `pink-elephant-scan` を呼ぶ。
+
+| 環境 | 添付ファイル |
+|---|---|
+| Linux (x86_64) | `pink-elephant-scan_linux_amd64` |
+| macOS (Apple Silicon) | `pink-elephant-scan_darwin_arm64` |
+| Windows (x86_64) | `pink-elephant-scan_windows_amd64.exe` |
+
+Linux / macOS の例（`~/.local/bin` が `PATH` に入っている前提）:
+
+```sh
+f=pink-elephant-scan_linux_amd64   # macOS は pink-elephant-scan_darwin_arm64
+base=https://github.com/angiodianxin/pink-elephant-guard/releases/download/v0.1.0
+curl -fL --remote-name-all "$base/$f" "$base/SHA256SUMS.txt"
+sha256sum -c --ignore-missing SHA256SUMS.txt   # macOS は shasum -a 256 -c --ignore-missing SHA256SUMS.txt
+mkdir -p ~/.local/bin
+install -m 755 "$f" ~/.local/bin/pink-elephant-scan
+```
+
+`<ファイル名>: OK` と出れば検証済み。macOS でブラウザからダウンロードした場合は、
+Gatekeeper の隔離属性を外す必要がある（`xattr -d com.apple.quarantine ~/.local/bin/pink-elephant-scan`）。
+
+Windows（PowerShell）の例:
+
+```powershell
+$f = 'pink-elephant-scan_windows_amd64.exe'
+$base = 'https://github.com/angiodianxin/pink-elephant-guard/releases/download/v0.1.0'
+Invoke-WebRequest "$base/$f" -OutFile $f -UseBasicParsing
+Invoke-WebRequest "$base/SHA256SUMS.txt" -OutFile SHA256SUMS.txt -UseBasicParsing
+$expected = ((Select-String -Path SHA256SUMS.txt -SimpleMatch $f).Line -split '\s+')[0]
+if ((Get-FileHash $f -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'checksum mismatch' }
+New-Item -ItemType Directory -Force "$HOME\bin" | Out-Null
+Move-Item $f "$HOME\bin\pink-elephant-scan.exe"
+```
+
+チェックサムが一致しないと `checksum mismatch` で止まる。`$HOME\bin` が `PATH` に無ければ、
+Windows の「環境変数」設定からユーザーの `Path` に追加する。
+
+[GitHub CLI](https://cli.github.com/) があれば、`curl` / `Invoke-WebRequest` の代わりに次でも取得できる。
+
+```sh
+gh release download v0.1.0 --repo angiodianxin/pink-elephant-guard -p "$f" -p SHA256SUMS.txt
+```
+
+配布バイナリの無い環境（Intel Mac、arm64 Linux 等）や、ソースから入れたい場合は Go 1.22+ でビルドする
+（[ビルド](#ビルド)参照）。`dist/pink-elephant-scan` ができるので、同様に `PATH` の通る場所へ置く。
+
+#### 4. 動作を確認する
+
+```sh
+pink-elephant-scan --manifest /dev/null --draft /dev/null; echo "exit=$?"
+```
+
+`exit=3`（空の manifest を不正として拒否。stderr に `manifest error`）が返れば、バイナリは `PATH` 上で動いている。
+`command not found` の場合は `PATH` を見直す。PowerShell では `pink-elephant-scan --manifest NUL --draft NUL; $LASTEXITCODE` で同じ確認ができる。
+
+Claude Code は **新しいセッション**を開始するとスキルとサブエージェントを読み込む。
+`/pink-elephant-guard` で明示的に発動でき、「これは消して」「その案はなし」のような依頼では自動で発動する。
+
+#### アップデート・アンインストール
+
+- アップデート: リポジトリで新しいタグを checkout し、手順 2・3 をやり直す（上書きでよい）。
+  変更内容は [`CHANGELOG.md`](CHANGELOG.md) を参照。
+- アンインストール: 配置した 3 点を削除する。
+
+  ```sh
+  rm -r ~/.claude/skills/pink-elephant-guard
+  rm ~/.claude/agents/pink-elephant-semantic-scan.md
+  rm ~/.local/bin/pink-elephant-scan
+  ```
 
 ## L1 CLI: pink-elephant-scan
 
@@ -51,11 +219,12 @@ usage: pink-elephant-scan --manifest <path> --draft <path>
 
 ```sh
 cd scan
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../bin/pink-elephant-scan .
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../dist/pink-elephant-scan .
 ```
 
-成果物は `bin/`（`.gitignore` 対象）へ置く。バイナリはコミットせず、
+成果物は `dist/`（`.gitignore` 対象）へ置く。バイナリはコミットせず、
 GitHub Releases + SHA-256 チェックサムで配布する。
+`bin/pink-elephant-scan` はプラグイン用のランチャー（コミット対象のシェルスクリプト）なので、ビルド成果物で上書きしない。
 
 `scan/go.mod` の外部依存は `golang.org/x/text`（`unicode/norm` の NFKC のみ使用）1 つだけで、
 これ以外を追加してはならない（MUST）。版を上げる場合も **必ず版を指定して取得すること。**
